@@ -1,0 +1,9 @@
+[submodule "src/nlohmann_json_cmake_fetchcontent"]
+	path = src/nlohmann_json_cmake_fetchcontent
+	url = https://github.com/ArthurSonzogni/nlohmann_json_cmake_fetchcontent
+[submodule "src/websocketpp"]
+	path = src/websocketpp
+	url = https://github.com/zaphoyd/websocketpp
+[submodule "SDL-Helper-Libraries"]
+	path = src/SDL-Helper-Libraries
+	url = https://github.com/SpaceCat-Chan/SDL-Helper-Libraries.git
