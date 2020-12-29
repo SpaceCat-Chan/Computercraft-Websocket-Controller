@@ -1,0 +1,8 @@
+newmtl container
+Ka 0.1 0.1 0.1
+Kd 1.0 1.0 1.0
+Ks 1.0 1.0 1.0
+map_Kd res/block.png
+map_Ks res/black.png
+Ns 100.2237
+

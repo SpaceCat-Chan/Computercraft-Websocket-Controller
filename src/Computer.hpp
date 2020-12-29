@@ -1,7 +1,7 @@
 #pragma once
 
-#include <future>
 #include <functional>
+#include <future>
 
 #include "Common_Networking.hpp"
 
@@ -85,13 +85,12 @@ class ComputerInterface
 	{
 		auto json_response = nlohmann::json::parse(message->get_payload());
 		std::cout << message->get_payload() << '\n';
-		if (json_response.find("request_id") == json_response.end()
-		    || m_requests.find(json_response["request_id"].get<size_t>())
-		           == m_requests.end())
+		auto response_id = json_response.at("request_id").get<int32_t>();
+		if (m_requests.find(response_id) == m_requests.end())
 		{
-			if (m_unexpected_message_handler)
+			if (m_unexpected_message_handler[response_id])
 			{
-				m_unexpected_message_handler(*this, json_response);
+				m_unexpected_message_handler[response_id](*this, json_response["response"]);
 			}
 			else
 			{
@@ -101,9 +100,15 @@ class ComputerInterface
 			}
 			return;
 		}
-		m_requests.at(json_response["request_id"].get<size_t>())
-		    ->set_value(json_response["response"]);
-		m_requests.erase(json_response["request_id"].get<size_t>());
+		m_requests.at(response_id)->set_value(json_response["response"]);
+		m_requests.erase(response_id);
+	}
+
+	void set_unexpected_message_handler(
+	    std::function<void(ComputerInterface &, nlohmann::json)> function,
+	    int32_t id)
+	{
+		m_unexpected_message_handler[id] = function;
 	}
 
 	private:
@@ -155,7 +160,7 @@ class ComputerInterface
 	server &m_endpoint;
 	std::unordered_map<size_t, std::shared_ptr<std::promise<nlohmann::json>>>
 	    m_requests;
-	std::function<void(ComputerInterface &, nlohmann::json)>
+	std::map<int32_t, std::function<void(ComputerInterface &, nlohmann::json)>>
 	    m_unexpected_message_handler;
 
 	template <typename T>
@@ -186,10 +191,12 @@ class CommandBuffer
 		CheckShutdown();
 		m_commands.at("commands").push_back(ComputerInterface::make_eval(m));
 	}
-	void buffer(CommandBuffer& m)
+	template <typename Q>
+	void buffer(CommandBuffer<Q> &m)
 	{
 		CheckShutdown();
-		m_commands.at("commands").push_back(ComputerInterface::make_command_buffer_json(m));
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_command_buffer_json(m));
 	}
 	void stop()
 	{
@@ -210,7 +217,8 @@ class CommandBuffer
 	std::future<T> m_parse(std::future<nlohmann::json> &&future)
 	{
 		return std::async(
-		    [parser = this->m_output_parser](std::future<nlohmann::json> future) {
+		    [parser
+		     = this->m_output_parser](std::future<nlohmann::json> future) {
 			    future.wait();
 			    return parser(future.get());
 		    },
@@ -253,4 +261,3 @@ std::future<T> ComputerInterface::execute_buffer(CommandBuffer<T> &buffer)
 	    std::make_shared<std::promise<nlohmann::json>>());
 	return buffer.m_parse(m_requests.at(request_id)->get_future());
 }
-

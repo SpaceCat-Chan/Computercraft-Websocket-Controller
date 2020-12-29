@@ -1,12 +1,18 @@
-#include <SDL.h>
 #include <GL/glew.h>
+#include <SDL.h>
 #include <glm/ext.hpp>
+
+#include "imgui.h"
+#include "imgui_impl_opengl3.h"
+#include "imgui_impl_sdl.h"
+#include "misc/cpp/imgui_stdlib.h"
 
 #include "Window/Window.hpp"
 
-#include "Server.hpp"
 #include "Computer.hpp"
+#include "Server.hpp"
 
+#include "render_world.hpp"
 #include "world.hpp"
 
 void GLAPIENTRY MessageCallback(
@@ -33,7 +39,7 @@ int main()
 {
 	Window window;
 
-	if (SDL_Init(SDL_INIT_VIDEO) < 0)
+	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) < 0)
 	{
 		std::cerr << "failed to init SDL: " << SDL_GetError() << '\n';
 		return 1;
@@ -41,44 +47,201 @@ int main()
 
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+	SDL_GL_SetAttribute(
+	    SDL_GL_CONTEXT_PROFILE_MASK,
+	    SDL_GL_CONTEXT_PROFILE_CORE);
 	SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 	SDL_GL_SetSwapInterval(1);
 
 	window.Load("Websocket Control Panel", 1600, 900);
 	window.Bind();
 
-	if(auto error = glewInit(); error != GLEW_OK)
+	if (auto error = glewInit(); error != GLEW_OK)
 	{
-		std::cout << "GLEW failed to initialize: " << glewGetErrorString(error) << '\n';
+		std::cout << "GLEW failed to initialize: " << glewGetErrorString(error)
+		          << '\n';
 		return 1;
 	}
 
 	glEnable(GL_DEBUG_OUTPUT);
 	glDebugMessageCallback(MessageCallback, nullptr);
 
+	glEnable(GL_DEPTH_TEST);
+	glDepthFunc(GL_LESS);
+
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO &io = ImGui::GetIO();
+
+	ImGui::StyleColorsDark();
+
+	ImGui_ImplSDL2_InitForOpenGL(window);
+	ImGui_ImplOpenGL3_Init();
+
 	server_manager s;
 
 	World world;
-	s.register_new_handler(std::bind(&World::new_turtle, &world, std::placeholders::_1));
+	s.register_new_handler(
+	    std::bind(&World::new_turtle, &world, std::placeholders::_1));
+
+	RenderWorld render_world;
+	world.dirty_renderer = std::bind(&RenderWorld::dirty, &render_world);
 
 	auto run_result = std::async(std::bind(&server_manager::run, &s));
 
 	bool stop = false;
+	SDL_Event event;
+	float x_sensitivity = 0.01;
+	float y_sensitivity = 0.01;
+	bool demo_toggled = false;
+	std::optional<std::reference_wrapper<Turtle>> selected_turtle;
 	while (!stop)
 	{
+		while (SDL_PollEvent(&event))
+		{
+			ImGui_ImplSDL2_ProcessEvent(&event);
+			switch (event.type)
+			{
+			case SDL_QUIT:
+				stop = true;
+				break;
+			case SDL_MOUSEMOTION:
+				if (!io.WantCaptureMouse && ImGui::IsMouseDragging(0))
+				{
+					glm::dvec3 up = glm::dvec3{0, 3, 0};
+					glm::dvec3 camera_position
+					    = render_world.camera.GetPosition();
+					glm::dvec3 camera_looking_at
+					    = render_world.camera.GetViewVector();
+					camera_position
+					    = glm::translate(
+					          glm::rotate(
+					              glm::translate(
+					                  glm::dmat4{1},
+					                  camera_looking_at),
+					              static_cast<double>(event.motion.xrel)
+					                  * -x_sensitivity,
+					              up),
+					          -camera_looking_at)
+					      * glm::dvec4{camera_position, 1};
+
+					glm::dvec3 to_camera = camera_position - camera_looking_at;
+					glm::dvec3 pitch_axis = glm::cross(up, to_camera);
+					glm::dvec3 new_camera_position
+					    = glm::translate(
+					          glm::rotate(
+					              glm::translate(
+					                  glm::dmat4{1},
+					                  camera_looking_at),
+					              static_cast<double>(event.motion.yrel)
+					                  * -y_sensitivity,
+					              pitch_axis),
+					          -camera_looking_at)
+					      * glm::dvec4{camera_position, 1};
+					if (std::abs(glm::dot(
+					        glm::normalize(
+					            new_camera_position - camera_looking_at),
+					        glm::normalize(up)))
+					    < glm::cos(glm::radians(1.0)))
+					{
+						camera_position = new_camera_position;
+					}
+					render_world.camera.MoveTo(camera_position);
+				}
+				break;
+			}
+		}
+
 		world.add_new_turtles();
-		std::string line;
-		std::getline(std::cin, line);
-		if (line == "stop")
+		render_world.copy_into_buffers(world);
+		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+		render_world.render();
+
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplSDL2_NewFrame(window);
+		ImGui::NewFrame();
+
+		ImGui::Begin("Hi!");
+		ImGui::Text("i exist");
+		ImGui::SliderFloat(
+		    "x sensitivity",
+		    &x_sensitivity,
+		    0.0,
+		    0.05,
+		    "%f",
+		    ImGuiSliderFlags_Logarithmic);
+		ImGui::SliderFloat(
+		    "y sensitivity",
+		    &y_sensitivity,
+		    0.0,
+		    0.05,
+		    "%f",
+		    ImGuiSliderFlags_Logarithmic);
+
+		if (ImGui::BeginCombo(
+		        "Selected Turtle",
+		        selected_turtle ? selected_turtle->get().name.c_str() : "none"))
 		{
-			stop = true;
+			for (auto &turtle : world.m_turtles)
+			{
+				if (ImGui::Selectable(turtle.name.c_str()))
+				{
+					selected_turtle = turtle;
+					auto old_camera_look_at
+					    = render_world.camera.GetViewVector();
+					auto old_camera_position
+					    = render_world.camera.GetPosition();
+					auto look_to_pos = old_camera_position - old_camera_look_at;
+					render_world.camera.LookAt(
+					    glm::dvec3{turtle.position} + glm::dvec3{0.5, 0.5, 0.5});
+					render_world.camera.MoveTo(
+					    glm::dvec3{turtle.position} + glm::dvec3{0.5, 0.5, 0.5}
+					    + look_to_pos);
+				}
+			}
+			ImGui::EndCombo();
 		}
-		else
+
+		ImGui::Checkbox("toggle demo", &demo_toggled);
+		if (demo_toggled)
 		{
-			s.m_computers.begin()->second->remote_eval(line);
+			ImGui::ShowDemoWindow();
 		}
+		ImGui::End();
+
+		if (selected_turtle)
+		{
+			ImGui::Begin("Turtle Control");
+			static std::string eval_text;
+			if (!selected_turtle->get().connection.expired())
+			{
+				auto temp = selected_turtle->get().connection.lock();
+				ImGui::InputTextMultiline("eval input", &eval_text);
+				if (ImGui::Button("Submit Eval"))
+				{
+					temp->remote_eval(eval_text);
+				}
+			}
+			else
+			{
+				ImGui::Text("turtle offline");
+			}
+
+			ImGui::End();
+		}
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+		SDL_GL_SwapWindow(window);
 	}
+
+	ImGui_ImplOpenGL3_Shutdown();
+	ImGui_ImplSDL2_Shutdown();
+	ImGui::DestroyContext();
+
+	window.Destroy();
 	s.send_stops();
 	sleep(1);
 	s.stop();

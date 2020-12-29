@@ -7,3 +7,6 @@
 [submodule "SDL-Helper-Libraries"]
 	path = src/SDL-Helper-Libraries
 	url = https://github.com/SpaceCat-Chan/SDL-Helper-Libraries.git
+[submodule "src/imgui"]
+	path = src/imgui
+	url = https://github.com/ocornut/imgui.git

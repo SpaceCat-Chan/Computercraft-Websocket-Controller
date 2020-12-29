@@ -12,16 +12,29 @@
 #include <GL/glew.h>
 #include <SDL_opengl.h>
 
+#include "imgui.h"
+#include "imgui_impl_sdl.h"
+#include "imgui_impl_opengl3.h"
+
 /**
  * \class Window
  * \brief a class that handles one window
  */
+
 class Window
 {
 	SDL_Window *m_Window = nullptr;
 	static SDL_GLContext m_Context;
 
 	friend void SDL_GL_SwapWindow(Window &);
+	friend void ImGui_ImplSDL2_InitForOpenGL(Window& a)
+	{
+		ImGui_ImplSDL2_InitForOpenGL(a.m_Window, m_Context);
+	}
+	friend void ImGui_ImplSDL2_NewFrame(Window& a)
+	{
+		ImGui_ImplSDL2_NewFrame(a.m_Window);
+	}
 
 public:
 	Window() = default;
