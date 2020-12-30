@@ -340,10 +340,10 @@ class World
 					{
 						std::cout << "found turtle already in world\n";
 						check_turtle.connection = turtle.first;
-						size_t name = hash(turtle.first);
+						auto name = std::to_string(hash(turtle.first));
 						check_turtle.name = name;
 						turtle.first->remote_eval(
-						    "os.setComputerLabel(\"" + std::to_string(name)
+						    "os.setComputerLabel(\"" + name
 						    + "\")");
 						check_turtle.position = position.first;
 						check_turtle.direction = position.second;
