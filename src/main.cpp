@@ -95,6 +95,7 @@ int main()
 	SDL_Event event;
 	float x_sensitivity = 0.01;
 	float y_sensitivity = 0.01;
+	float mouse_wheel_sensitivity = 0.1;
 	bool demo_toggled = false;
 	while (!stop)
 	{
@@ -150,6 +151,24 @@ int main()
 					render_world.camera.MoveTo(camera_position);
 				}
 				break;
+			case SDL_MOUSEWHEEL:
+				if (!io.WantCaptureMouse)
+				{
+					glm::dvec3 camera_position
+					    = render_world.camera.GetPosition();
+					glm::dvec3 camera_looking_at
+					    = render_world.camera.GetViewVector();
+					glm::dvec3 to_camera = camera_position - camera_looking_at;
+					double multiplier = static_cast<double>(event.wheel.y)
+					                    * mouse_wheel_sensitivity;
+					if (event.wheel.direction == SDL_MOUSEWHEEL_NORMAL)
+					{
+						multiplier *= -1;
+					}
+					to_camera = to_camera * (multiplier + 1);
+					render_world.camera.MoveTo(camera_looking_at + to_camera);
+				}
+				break;
 			}
 		}
 
@@ -176,6 +195,13 @@ int main()
 		    &y_sensitivity,
 		    0.0,
 		    0.05,
+		    "%f",
+		    ImGuiSliderFlags_Logarithmic);
+		ImGui::SliderFloat(
+		    "mouse wheel sensitivity",
+		    &mouse_wheel_sensitivity,
+		    0.001,
+		    0.25,
 		    "%f",
 		    ImGuiSliderFlags_Logarithmic);
 
@@ -212,7 +238,12 @@ int main()
 			if (!turtle.connection.expired())
 			{
 				auto temp = turtle.connection.lock();
-				ImGui::Text("x: %i, y: %i, z: %i, o: ", turtle.position.x, turtle.position.y, turtle.position.z);
+				ImGui::Text(
+				    "x: %i, y: %i, z: %i, o: %s",
+				    turtle.position.x,
+				    turtle.position.y,
+				    turtle.position.z,
+				    Turtle::direction_to_string(turtle.direction));
 				ImGui::InputTextMultiline("eval input", &eval_text);
 				if (ImGui::Button("Submit Eval"))
 				{

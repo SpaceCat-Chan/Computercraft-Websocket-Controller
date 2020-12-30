@@ -52,6 +52,20 @@ struct Turtle
 			return {-1, 0, 0};
 		}
 	}
+	static const char *direction_to_string(Direction d)
+	{
+		switch (d)
+		{
+		case north:
+			return "north";
+		case east:
+			return "east";
+		case south:
+			return "south";
+		case west:
+			return "west";
+		}
+	}
 };
 
 class World
@@ -343,8 +357,7 @@ class World
 						auto name = std::to_string(hash(turtle.first));
 						check_turtle.name = name;
 						turtle.first->remote_eval(
-						    "os.setComputerLabel(\"" + name
-						    + "\")");
+						    "os.setComputerLabel(\"" + name + "\")");
 						check_turtle.position = position.first;
 						check_turtle.direction = position.second;
 						found = true;
@@ -364,7 +377,8 @@ class World
 					new_turtle.direction = position.second;
 					m_turtles.push_back(std::move(new_turtle));
 				}
-				m_turtles_in_progress.erase(m_turtles_in_progress.begin() + i - 1);
+				m_turtles_in_progress.erase(
+				    m_turtles_in_progress.begin() + i - 1);
 			}
 		}
 		if (turtles_added && dirty_renderer)
