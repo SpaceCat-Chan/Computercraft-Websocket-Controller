@@ -15,12 +15,12 @@ class RenderWorld
 	public:
 	RenderWorld()
 	{
-		shader.AddShaderFile("res/shader.vert", GL_VERTEX_SHADER);
-		shader.AddShaderFile("res/shader.frag", GL_FRAGMENT_SHADER);
-		shader.Link();
+		m_shader.AddShaderFile("res/shader.vert", GL_VERTEX_SHADER);
+		m_shader.AddShaderFile("res/shader.frag", GL_FRAGMENT_SHADER);
+		m_shader.Link();
 
-		block_mesh.Load("res/block.obj");
-		turtle_mesh.Load("res/turtle.obj");
+		m_block_mesh.Load("res/block.obj");
+		m_turtle_mesh.Load("res/turtle.obj");
 
 		camera.MoveTo({2, 2, 2});
 		camera.LookAt({0, 0, 0});
@@ -29,8 +29,20 @@ class RenderWorld
 
 	void copy_into_buffers(World &world)
 	{
-		if (is_data_dirty)
+		if (m_is_data_dirty)
 		{
+			if (m_selected_turtle)
+			{
+				auto &turtle = world.m_turtles[*m_selected_turtle];
+				auto old_camera_look_at = camera.GetViewVector();
+				auto old_camera_position = camera.GetPosition();
+				auto look_to_pos = old_camera_position - old_camera_look_at;
+				camera.LookAt(
+				    glm::dvec3{turtle.position} + glm::dvec3{0.5, 0.5, 0.5});
+				camera.MoveTo(
+				    glm::dvec3{turtle.position} + glm::dvec3{0.5, 0.5, 0.5}
+				    + look_to_pos);
+			}
 			std::scoped_lock<std::mutex> a{world.render_mutex};
 			std::vector<glm::ivec4> new_block_positions;
 			std::vector<glm::vec4> new_block_colors;
@@ -58,66 +70,73 @@ class RenderWorld
 				    turtle.direction);
 				new_turtle_colors.emplace_back(1, 1, 1, 1);
 			}
-			block_positions.LoadData(new_block_positions, GL_STREAM_DRAW);
-			block_colors.LoadData(new_block_colors, GL_STREAM_DRAW);
-			turtle_positions.LoadData(new_turtle_positions, GL_STREAM_DRAW);
-			turtle_colors.LoadData(new_turtle_colors, GL_STREAM_DRAW);
-			is_data_dirty = false;
+			m_block_positions.LoadData(new_block_positions, GL_STREAM_DRAW);
+			m_block_colors.LoadData(new_block_colors, GL_STREAM_DRAW);
+			m_turtle_positions.LoadData(new_turtle_positions, GL_STREAM_DRAW);
+			m_turtle_colors.LoadData(new_turtle_colors, GL_STREAM_DRAW);
+			m_is_data_dirty = false;
 		}
 	}
 
 	void render()
 	{
-		shader.Bind();
-		shader.SetUniform("u_view_proj", camera.GetMVP());
-		shader.SetUniform("u_model", glm::dmat4{1});
+		m_shader.Bind();
+		m_shader.SetUniform("u_view_proj", camera.GetMVP());
+		m_shader.SetUniform("u_model", glm::dmat4{1});
 
-		block_positions.Bind(0);
-		block_colors.Bind(1);
+		m_block_positions.Bind(0);
+		m_block_colors.Bind(1);
 
-		block_mesh.Bind(shader);
+		m_block_mesh.Bind(m_shader);
 		glDrawElementsInstanced(
 		    GL_TRIANGLES,
-		    block_mesh.GetIndexCount(0),
+		    m_block_mesh.GetIndexCount(0),
 		    GL_UNSIGNED_INT,
 		    0,
-		    block_positions.size());
+		    m_block_positions.size());
 
-		shader.SetUniform(
+		m_shader.SetUniform(
 		    "u_view_proj",
 		    camera.GetMVP()
-		        * glm::translate(glm::dmat4{1}, glm::dvec3{1.5, 0.5, -0.5}));
-		shader.SetUniform(
+		        * glm::translate(glm::dmat4{1}, glm::dvec3{0.5, -0.5, 0.5}));
+		m_shader.SetUniform(
 		    "u_model",
 		    glm::rotate(
-		        glm::translate(glm::dmat4{1}, glm::dvec3{-0.5, -0.5, -0.5}),
+		        glm::translate(glm::dmat4{1}, glm::dvec3{0.5, 0.5, 0.5}),
 		        glm::radians(180.0),
 		        glm::dvec3{0, 1, 0}));
-		turtle_positions.Bind(0);
-		turtle_colors.Bind(1);
+		m_turtle_positions.Bind(0);
+		m_turtle_colors.Bind(1);
 
-		turtle_mesh.Bind(shader);
+		m_turtle_mesh.Bind(m_shader);
 		glDrawElementsInstanced(
 		    GL_TRIANGLES,
-		    turtle_mesh.GetIndexCount(0),
+		    m_turtle_mesh.GetIndexCount(0),
 		    GL_UNSIGNED_INT,
 		    0,
-		    turtle_positions.size());
+		    m_turtle_positions.size());
 	}
-	void dirty() { is_data_dirty = true; }
+	void dirty() { m_is_data_dirty = true; }
+	void select_turtle(std::optional<size_t> i = {})
+	{
+		dirty();
+		m_selected_turtle = i;
+	}
+	const auto &selected_turtle() const { return m_selected_turtle; }
 
 	Camera camera;
 
 	private:
-	ssbo<glm::ivec4> block_positions;
-	ssbo<glm::vec4> block_colors;
-	ssbo<glm::ivec4> turtle_positions;
-	ssbo<glm::vec4> turtle_colors;
+	std::optional<size_t> m_selected_turtle;
+	ssbo<glm::ivec4> m_block_positions;
+	ssbo<glm::vec4> m_block_colors;
+	ssbo<glm::ivec4> m_turtle_positions;
+	ssbo<glm::vec4> m_turtle_colors;
 
-	TexturedMesh block_mesh;
-	TexturedMesh turtle_mesh;
+	TexturedMesh m_block_mesh;
+	TexturedMesh m_turtle_mesh;
 
-	Shader shader;
+	Shader m_shader;
 
-	bool is_data_dirty = false;
+	bool m_is_data_dirty = false;
 };

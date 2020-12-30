@@ -197,6 +197,7 @@ class World
 				turtle.direction = position.at("o").get<Turtle::Direction>();
 			}
 		}
+		dirty_renderer();
 	}
 
 	void update_block(std::pair<std::optional<Block>, glm::ivec3> block)

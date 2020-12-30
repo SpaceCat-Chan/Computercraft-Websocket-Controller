@@ -96,7 +96,6 @@ int main()
 	float x_sensitivity = 0.01;
 	float y_sensitivity = 0.01;
 	bool demo_toggled = false;
-	std::optional<std::reference_wrapper<Turtle>> selected_turtle;
 	while (!stop)
 	{
 		while (SDL_PollEvent(&event))
@@ -182,23 +181,17 @@ int main()
 
 		if (ImGui::BeginCombo(
 		        "Selected Turtle",
-		        selected_turtle ? selected_turtle->get().name.c_str() : "none"))
+		        render_world.selected_turtle()
+		            ? world.m_turtles[*render_world.selected_turtle()]
+		                  .name.c_str()
+		            : "none"))
 		{
-			for (auto &turtle : world.m_turtles)
+			for (size_t i = 0; i < world.m_turtles.size(); i++)
 			{
+				auto &turtle = world.m_turtles[i];
 				if (ImGui::Selectable(turtle.name.c_str()))
 				{
-					selected_turtle = turtle;
-					auto old_camera_look_at
-					    = render_world.camera.GetViewVector();
-					auto old_camera_position
-					    = render_world.camera.GetPosition();
-					auto look_to_pos = old_camera_position - old_camera_look_at;
-					render_world.camera.LookAt(
-					    glm::dvec3{turtle.position} + glm::dvec3{0.5, 0.5, 0.5});
-					render_world.camera.MoveTo(
-					    glm::dvec3{turtle.position} + glm::dvec3{0.5, 0.5, 0.5}
-					    + look_to_pos);
+					render_world.select_turtle(i);
 				}
 			}
 			ImGui::EndCombo();
@@ -211,13 +204,15 @@ int main()
 		}
 		ImGui::End();
 
-		if (selected_turtle)
+		if (render_world.selected_turtle())
 		{
+			auto &turtle = world.m_turtles[*render_world.selected_turtle()];
 			ImGui::Begin("Turtle Control");
 			static std::string eval_text;
-			if (!selected_turtle->get().connection.expired())
+			if (!turtle.connection.expired())
 			{
-				auto temp = selected_turtle->get().connection.lock();
+				auto temp = turtle.connection.lock();
+				ImGui::Text("x: %i, y: %i, z: %i, o: ", turtle.position.x, turtle.position.y, turtle.position.z);
 				ImGui::InputTextMultiline("eval input", &eval_text);
 				if (ImGui::Button("Submit Eval"))
 				{
