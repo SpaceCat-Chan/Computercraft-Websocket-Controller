@@ -38,25 +38,43 @@ class RenderWorld
 				auto old_camera_position = camera.GetPosition();
 				auto look_to_pos = old_camera_position - old_camera_look_at;
 				camera.LookAt(
-				    glm::dvec3{turtle.position} + glm::dvec3{0.5, 0.5, 0.5});
+				    glm::dvec3{turtle.position.position}
+				    + glm::dvec3{0.5, 0.5, 0.5});
 				camera.MoveTo(
-				    glm::dvec3{turtle.position} + glm::dvec3{0.5, 0.5, 0.5}
-				    + look_to_pos);
+				    glm::dvec3{turtle.position.position}
+				    + glm::dvec3{0.5, 0.5, 0.5} + look_to_pos);
 			}
 			std::scoped_lock<std::mutex> a{world.render_mutex};
 			std::vector<glm::ivec4> new_block_positions;
 			std::vector<glm::vec4> new_block_colors;
 			std::vector<glm::ivec4> new_turtle_positions;
 			std::vector<glm::vec4> new_turtle_colors;
-			for (auto &x : world.m_blocks)
+
+			if (m_selected_server)
 			{
-				for (auto &y : x.second)
+				auto server = world.m_blocks.find(*m_selected_server);
+				if (m_selected_dimension && server != world.m_blocks.end())
 				{
-					for (auto &z : y.second)
+					auto dimension = server->second.find(*m_selected_dimension);
+					if (dimension != server->second.end())
 					{
-						new_block_positions
-						    .emplace_back(x.first, y.first, z.first, 0);
-						new_block_colors.emplace_back(z.second.color, 1);
+						for (auto &x : dimension->second)
+						{
+							for (auto &y : x.second)
+							{
+								for (auto &z : y.second)
+								{
+									new_block_positions.emplace_back(
+									    x.first,
+									    y.first,
+									    z.first,
+									    0);
+									new_block_colors.emplace_back(
+									    z.second.color,
+									    1);
+								}
+							}
+						}
 					}
 				}
 			}
@@ -65,10 +83,16 @@ class RenderWorld
 			new_turtle_colors.reserve(world.m_turtles.size());
 			for (auto &turtle : world.m_turtles)
 			{
-				new_turtle_positions.emplace_back(
-				    turtle.position,
-				    turtle.direction);
-				new_turtle_colors.emplace_back(1, 1, 1, 1);
+				if (m_selected_server
+				    && *m_selected_server == turtle.position.server
+				    && m_selected_dimension
+				    && *m_selected_dimension == turtle.position.dimension)
+				{
+					new_turtle_positions.emplace_back(
+					    turtle.position.position,
+					    turtle.position.direction);
+					new_turtle_colors.emplace_back(1, 1, 1, 1);
+				}
 			}
 			m_block_positions.LoadData(new_block_positions, GL_STREAM_DRAW);
 			m_block_colors.LoadData(new_block_colors, GL_STREAM_DRAW);
@@ -117,16 +141,41 @@ class RenderWorld
 		    m_turtle_positions.size());
 	}
 	void dirty() { m_is_data_dirty = true; }
+	void select_server(std::optional<std::string> i = {})
+	{
+		dirty();
+		m_selected_server = i;
+	}
+	void select_dimension(std::optional<std::string> i = {})
+	{
+		dirty();
+		m_selected_dimension = i;
+	}
 	void select_turtle(std::optional<size_t> i = {})
 	{
 		dirty();
 		m_selected_turtle = i;
 	}
+	const auto &selected_server() const { return m_selected_server; }
+	const auto &selected_dimension() const { return m_selected_dimension; }
 	const auto &selected_turtle() const { return m_selected_turtle; }
+	const char *selected_turtle_name(const World &world) const
+	{
+		if (m_selected_turtle)
+		{
+			return world.m_turtles[*m_selected_turtle].name.c_str();
+		}
+		else
+		{
+			return "none";
+		}
+	}
 
 	Camera camera;
 
 	private:
+	std::optional<std::string> m_selected_server;
+	std::optional<std::string> m_selected_dimension;
 	std::optional<size_t> m_selected_turtle;
 	ssbo<glm::ivec4> m_block_positions;
 	ssbo<glm::vec4> m_block_colors;

@@ -12,8 +12,7 @@ struct std::hash<websocketpp::connection_hdl>
 {
 	std::size_t operator()(websocketpp::connection_hdl connection) const
 	{
-		return reinterpret_cast<size_t>(
-		    static_cast<std::shared_ptr<void>>(connection).get());
+		return reinterpret_cast<size_t>(connection.lock().get());
 	}
 };
 
@@ -73,6 +72,20 @@ class ComputerInterface
 	template <typename T>
 	std::future<T> execute_buffer(CommandBuffer<T> &buffer);
 
+	std::future<nlohmann::json> inspect(std::string direction)
+	{
+		auto request = make_inspect(direction);
+		auto request_id = add_request_id(request);
+		m_endpoint.send(
+		    m_connection,
+		    request.dump(),
+		    websocketpp::frame::opcode::text);
+		m_requests.emplace(
+		    request_id,
+		    std::make_shared<std::promise<nlohmann::json>>());
+		return m_requests.at(request_id)->get_future();
+	}
+
 	void send_stop()
 	{
 		m_endpoint.send(
@@ -90,7 +103,9 @@ class ComputerInterface
 		{
 			if (m_unexpected_message_handler[response_id])
 			{
-				m_unexpected_message_handler[response_id](*this, json_response["response"]);
+				m_unexpected_message_handler[response_id](
+				    *this,
+				    json_response["response"]);
 			}
 			else
 			{
@@ -147,6 +162,18 @@ class ComputerInterface
 	}
 	template <typename T>
 	static nlohmann::json make_command_buffer_json(CommandBuffer<T> &);
+	static nlohmann::json make_inspect(std::string direction)
+	{
+		auto inspect = R"(
+			{
+				"request_type": "inspect",
+				"request_id": "-1",
+				"direction": ""
+			}
+		)"_json;
+		inspect.at("direction") = direction;
+		return inspect;
+	}
 
 	size_t add_request_id(nlohmann::json &request)
 	{
@@ -171,7 +198,7 @@ template <typename T>
 class CommandBuffer
 {
 	public:
-	CommandBuffer()
+	constexpr CommandBuffer()
 	{
 		m_commands = R"(
 			{
@@ -198,17 +225,23 @@ class CommandBuffer
 		m_commands.at("commands")
 		    .push_back(ComputerInterface::make_command_buffer_json(m));
 	}
-	void stop()
+	void inspect(std::string direction)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_inspect(direction));
+	}
+	constexpr void stop()
 	{
 		m_commands.at("commands").push_back(ComputerInterface::make_stop());
 		m_commands["shutdown"] = true;
 	}
 
-	void SupplyOutputParser(std::function<T(nlohmann::json)> m)
+	constexpr void SupplyOutputParser(std::function<T(nlohmann::json)> m)
 	{
 		m_output_parser = m;
 	}
-	void SetDefaultParser()
+	constexpr void SetDefaultParser()
 	{
 		m_output_parser = [](nlohmann::json &m) { return m; };
 	}

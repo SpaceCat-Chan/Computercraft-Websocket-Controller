@@ -5,71 +5,189 @@
 #include <unordered_map>
 
 #include <glm/ext.hpp>
+#include <boost/serialization/access.hpp>
+#include <boost/serialization/unordered_map.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 
 #include "nlohmann/json.hpp"
 
 #include "Computer.hpp"
 #include "Server.hpp"
 
+enum Direction : int
+{
+	north = 0,
+	east = 1,
+	south = 2,
+	west = 3
+};
+constexpr static glm::ivec3 orientation_to_direction(Direction d)
+{
+	switch (d)
+	{
+	case north:
+		return {0, 0, -1};
+	case east:
+		return {1, 0, 0};
+	case south:
+		return {0, 0, 1};
+	case west:
+		return {-1, 0, 0};
+	}
+}
+constexpr static const char *direction_to_string(Direction d)
+{
+	switch (d)
+	{
+	case north:
+		return "north";
+	case east:
+		return "east";
+	case south:
+		return "south";
+	case west:
+		return "west";
+	}
+}
+
+struct WorldLocation
+{
+	std::string server;
+	std::string dimension;
+	glm::ivec3 position;
+	Direction direction;
+
+	private:
+	friend class boost::serialization::access;
+	template <typename Archive>
+	void serialize(Archive& ar, const unsigned int version)
+	{
+		ar & server;
+		ar & dimension;
+		ar & position;
+		ar & direction;
+	}
+};
+
 struct Block
 {
-	glm::ivec3 position;
+	WorldLocation position;
 	glm::dvec3 color;
 	std::string name;
 	int metadata;
 	nlohmann::json blockstate;
+
+	private:
+	friend class boost::serialization::access;
+	BOOST_SERIALIZATION_SPLIT_MEMBER();
+	template<typename Archive>
+	void save (Archive& ar, const unsigned int version) const
+	{
+		ar & position;
+		ar & color;
+		ar & name;
+		ar & metadata;
+		ar & blockstate.dump();
+	}
+	template<typename Archive>
+	void load(Archive& ar, const unsigned int version)
+	{
+		ar & position;
+		ar & color;
+		ar & name;
+		ar & metadata;
+		std::string blockstate_string;
+		ar & blockstate_string;
+		blockstate = blockstate_string;
+	}
 };
+
+namespace boost {
+	namespace serialization {
+		template <typename Archive>
+		void serialize(Archive &ar, glm::dvec3 &vec, const unsigned int version)
+		{
+			ar & vec[0];
+			ar & vec[1];
+			ar & vec[2];
+		}
+		template <typename Archive>
+		void serialize(Archive &ar, glm::ivec3 &vec, const unsigned int version)
+		{
+			ar & vec[0];
+			ar & vec[1];
+			ar & vec[2];
+		}
+	}
+}
 
 struct Turtle
 {
-	glm::ivec3 position;
+	WorldLocation position;
 	std::string name;
 	std::weak_ptr<ComputerInterface> connection;
-	enum Direction : int
-	{
-		north = 0,
-		east = 1,
-		south = 2,
-		west = 3
-	} direction;
-	std::optional<std::future<std::pair<glm::ivec3, Direction>>>
-	    position_update;
-	std::optional<
-	    std::future<std::array<std::pair<std::optional<Block>, glm::ivec3>, 3>>>
+	std::optional<std::future<WorldLocation>> position_update;
+	std::optional<std::future<
+	    std::array<std::pair<std::optional<Block>, WorldLocation>, 3>>>
 	    block_update;
-
-	static glm::ivec3 orientation_to_direction(Direction d)
+	
+	private:
+	friend class boost::serialization::access;
+	template <typename Archive>
+	void serialize(Archive & ar, const unsigned int version)
 	{
-		switch (d)
-		{
-		case north:
-			return {0, 0, -1};
-		case east:
-			return {1, 0, 0};
-		case south:
-			return {0, 0, 1};
-		case west:
-			return {-1, 0, 0};
-		}
-	}
-	static const char *direction_to_string(Direction d)
-	{
-		switch (d)
-		{
-		case north:
-			return "north";
-		case east:
-			return "east";
-		case south:
-			return "south";
-		case west:
-			return "west";
-		}
+		ar & position;
+		ar & name;
 	}
 };
 
+template <typename T, typename... U>
+const T &first_in_pack(const T &first, const U &... others)
+{
+	return first;
+}
+
+template <typename T, typename... U>
+struct first_in_pack_s
+{
+	using type = T;
+};
+
+template <typename U, typename V, typename... T>
+void erase_nested(
+    std::unordered_map<
+        V,
+        std::unordered_map<typename first_in_pack_s<T...>::type, U>>
+        &erase_from,
+    const V &to_erase,
+    const T &... next_layers)
+{
+	auto found = erase_from.find(to_erase);
+	if (found != erase_from.end())
+	{
+		erase_nested(found->second, next_layers...);
+		if (found->second.empty())
+		{
+			erase_from.erase(found);
+		}
+	}
+}
+
+template <typename T, typename V>
+void erase_nested(std::unordered_map<T, V> &erase_from, const T &to_erase)
+{
+	auto found = erase_from.find(to_erase);
+	if (found != erase_from.end())
+	{
+		erase_from.erase(found);
+	}
+}
+
 class World
 {
+	friend class boost::serialization::access;
 	public:
 	World()
 	{
@@ -86,14 +204,18 @@ class World
 			return turtle.inspectDown()
 		)");
 		surrounding_blocks_buffer.SupplyOutputParser([](nlohmann::json result) {
-			glm::ivec3 turtle_position;
-			turtle_position.x = result.at(0).at("returns").at(1).get<int>();
-			turtle_position.y = result.at(0).at("returns").at(2).get<int>();
-			turtle_position.z = result.at(0).at("returns").at(3).get<int>();
-			Turtle::Direction direction{
-			    result.at(0).at("returns").at(4).get<int>()};
+			WorldLocation turtle;
+			turtle.position.x = result.at(0).at("returns").at(1).get<int>();
+			turtle.position.y = result.at(0).at("returns").at(2).get<int>();
+			turtle.position.z = result.at(0).at("returns").at(3).get<int>();
+			turtle.direction
+			    = Direction{result.at(0).at("returns").at(4).get<int>()};
+			turtle.dimension
+			    = result.at(0).at("returns").at(5).get<std::string>();
+			turtle.server = result.at(0).at("returns").at(6).get<std::string>();
 
-			std::array<std::pair<std::optional<Block>, glm::ivec3>, 3> blocks;
+			std::array<std::pair<std::optional<Block>, WorldLocation>, 3>
+			    blocks;
 			for (size_t i = 0; i < 3; i++)
 			{
 				glm::ivec3 block_direction;
@@ -101,7 +223,7 @@ class World
 				{
 				case 0:
 					block_direction
-					    = Turtle::orientation_to_direction(direction);
+					    = orientation_to_direction(turtle.direction);
 					break;
 				case 1:
 					block_direction = {0, 1, 0};
@@ -110,6 +232,10 @@ class World
 					block_direction = {0, -1, 0};
 					break;
 				}
+				blocks[i].second.position = turtle.position + block_direction;
+				blocks[i].second.dimension = turtle.dimension;
+				blocks[i].second.server = turtle.server;
+
 				if (result.at(i + 1).at("returns").at(1) == true)
 				{
 					blocks[i].first = Block{};
@@ -135,10 +261,12 @@ class World
 					                                .get<int>();
 					blocks[i].first->blockstate
 					    = result.at(i + 1).at("returns").at(2).at("state");
-					blocks[i].first->position
-					    = turtle_position + block_direction;
+					blocks[i].first->position.position
+					    = blocks[i].second.position;
+					blocks[i].first->position.dimension
+					    = blocks[i].second.dimension;
+					blocks[i].first->position.server = blocks[i].second.server;
 				}
-				blocks[i].second = turtle_position + block_direction;
 			}
 
 			return blocks;
@@ -148,13 +276,15 @@ class World
 			return position.get()
 		)");
 		auto position_parse = [](nlohmann::json result) {
-			glm::ivec3 position;
-			position.x = result.at(0).at("returns").at(1).get<int>();
-			position.y = result.at(0).at("returns").at(2).get<int>();
-			position.z = result.at(0).at("returns").at(3).get<int>();
-			Turtle::Direction direction{
-			    result.at(0).at("returns").at(4).get<int>()};
-			return std::pair{position, direction};
+			WorldLocation parsed;
+			auto returns = result.at(0).at("returns");
+			parsed.position.x = returns.at(1).get<int>();
+			parsed.position.y = returns.at(2).get<int>();
+			parsed.position.z = returns.at(3).get<int>();
+			parsed.direction = Direction{returns.at(4).get<int>()};
+			parsed.dimension = returns.at(5).get<std::string>();
+			parsed.server = returns.at(6).get<std::string>();
+			return parsed;
 		};
 		position_buffer.SupplyOutputParser(position_parse);
 
@@ -172,15 +302,23 @@ class World
 		std::scoped_lock lock{render_mutex};
 		for (auto &block : blocks)
 		{
-			std::pair<std::optional<Block>, glm::ivec3> parsed_block;
-			parsed_block.second = glm::ivec3{
+			std::pair<std::optional<Block>, WorldLocation> parsed_block;
+			parsed_block.second.position = glm::ivec3{
 			    block.at("position").at(0),
 			    block.at("position").at(1),
 			    block.at("position").at(2)};
+			parsed_block.second.dimension
+			    = block.at("dimension").get<std::string>();
+			parsed_block.second.server = block.at("server").get<std::string>();
 			if (block.at("found_block").get<bool>())
 			{
 				parsed_block.first = Block{};
-				parsed_block.first->position = parsed_block.second;
+				parsed_block.first->position.position
+				    = parsed_block.second.position;
+				parsed_block.first->position.dimension
+				    = parsed_block.second.dimension;
+				parsed_block.first->position.server
+				    = parsed_block.second.server;
 				parsed_block.first->metadata
 				    = block.at("block").at("metadata").get<int>();
 				parsed_block.first->blockstate = block.at("block").at("state");
@@ -205,46 +343,37 @@ class World
 		{
 			if (turtle.connection.lock().get() == &turtle_connection)
 			{
-				turtle.position.x = position.at("x").get<int>();
-				turtle.position.y = position.at("y").get<int>();
-				turtle.position.z = position.at("z").get<int>();
-				turtle.direction = position.at("o").get<Turtle::Direction>();
+				turtle.position.position.x = position.at("x").get<int>();
+				turtle.position.position.y = position.at("y").get<int>();
+				turtle.position.position.z = position.at("z").get<int>();
+				turtle.position.direction = position.at("o").get<Direction>();
+				turtle.position.dimension
+				    = position.at("dimension").get<std::string>();
+				turtle.position.server
+				    = position.at("server").get<std::string>();
 			}
 		}
 		dirty_renderer();
 	}
 
-	void update_block(std::pair<std::optional<Block>, glm::ivec3> block)
+	void update_block(std::pair<std::optional<Block>, WorldLocation> block)
 	{
 		if (block.first)
 		{
-			m_blocks[block.second.x][block.second.y][block.second.z]
+			m_blocks[block.second.server][block.second.dimension]
+			        [block.second.position.x][block.second.position.y]
+			        [block.second.position.z]
 			    = *(block.first);
 		}
 		else
 		{
-			auto first_level = m_blocks.find(block.second.x);
-			if (first_level != m_blocks.end())
-			{
-				auto second_level = first_level->second.find(block.second.y);
-				if (second_level != first_level->second.end())
-				{
-					auto third_level
-					    = second_level->second.find(block.second.z);
-					if (third_level != second_level->second.end())
-					{
-						second_level->second.erase(third_level);
-					}
-					if (second_level->second.empty())
-					{
-						first_level->second.erase(second_level);
-					}
-				}
-				if (first_level->second.empty())
-				{
-					m_blocks.erase(first_level);
-				}
-			}
+			erase_nested(
+			    m_blocks,
+			    block.second.server,
+			    block.second.dimension,
+			    block.second.position.x,
+			    block.second.position.y,
+			    block.second.position.z);
 		}
 		if (dirty_renderer)
 		{
@@ -273,8 +402,14 @@ class World
 			{
 				updated_data = true;
 				auto data = turtle.position_update->get();
-				turtle.position = data.first;
-				turtle.direction = data.second;
+				turtle.position.position = data.position;
+				turtle.position.direction = data.direction;
+				turtle.position.server
+				    = data.server; // technically shouldn't need to copy server
+				                   // and dimension stuff here since it should
+				                   // stay the same, but it can't hurt to be
+				                   // safe
+				turtle.position.dimension = data.dimension;
 				turtle.position_update = std::nullopt;
 			}
 			if (updated_data && dirty_renderer)
@@ -358,8 +493,10 @@ class World
 						check_turtle.name = name;
 						turtle.first->remote_eval(
 						    "os.setComputerLabel(\"" + name + "\")");
-						check_turtle.position = position.first;
-						check_turtle.direction = position.second;
+						check_turtle.position.position = position.position;
+						check_turtle.position.direction = position.direction;
+						check_turtle.position.server = position.server;
+						check_turtle.position.dimension = position.dimension;
 						found = true;
 						break;
 					}
@@ -373,8 +510,10 @@ class World
 					new_turtle.name = name;
 					turtle.first->remote_eval(
 					    "os.setComputerLabel(\"" + name + "\")");
-					new_turtle.position = position.first;
-					new_turtle.direction = position.second;
+					new_turtle.position.position = position.position;
+					new_turtle.position.direction = position.direction;
+					new_turtle.position.server = position.server;
+					new_turtle.position.dimension = position.dimension;
 					m_turtles.push_back(std::move(new_turtle));
 				}
 				m_turtles_in_progress.erase(
@@ -389,24 +528,32 @@ class World
 
 	std::mutex render_mutex;
 
-	CommandBuffer<std::array<std::pair<std::optional<Block>, glm::ivec3>, 3>>
+	CommandBuffer<std::array<std::pair<std::optional<Block>, WorldLocation>, 3>>
 	    surrounding_blocks_buffer;
-	CommandBuffer<std::pair<glm::ivec3, Turtle::Direction>> position_buffer;
-	CommandBuffer<
-	    std::pair<std::pair<glm::ivec3, Turtle::Direction>, nlohmann::json>>
-	    position_and_name;
-
+	CommandBuffer<WorldLocation> position_buffer;
+	CommandBuffer<std::pair<WorldLocation, nlohmann::json>> position_and_name;
 	std::unordered_map<
-	    int,
-	    std::unordered_map<int, std::unordered_map<int, Block>>>
+	    std::string,
+	    std::unordered_map<
+	        std::string,
+	        std::unordered_map<
+	            int,
+	            std::unordered_map<int, std::unordered_map<int, Block>>>>>
 	    m_blocks;
+
 	std::vector<Turtle> m_turtles;
 	std::vector<std::pair<
 	    std::shared_ptr<ComputerInterface>,
-	    std::future<std::pair<
-	        std::pair<glm::ivec3, Turtle::Direction>,
-	        nlohmann::json>>>>
+	    std::future<std::pair<WorldLocation, nlohmann::json>>>>
 	    m_turtles_in_progress;
 
 	std::function<void(void)> dirty_renderer;
+
+	private:
+	template<typename Archive>
+	void serialize(Archive& ar, const unsigned int version)
+	{
+		ar & m_blocks;
+		ar & m_turtles;
+	}
 };

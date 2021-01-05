@@ -1,3 +1,5 @@
+#include <fstream>
+
 #include <GL/glew.h>
 #include <SDL.h>
 #include <glm/ext.hpp>
@@ -86,6 +88,14 @@ int main()
 	s.register_new_handler(
 	    std::bind(&World::new_turtle, &world, std::placeholders::_1));
 
+	{
+		std::fstream default_save{"world_default.save", std::ios::in};
+		if (default_save.is_open())
+		{
+			boost::archive::text_iarchive ar{default_save};
+			ar >> world;
+		}
+	}
 	RenderWorld render_world;
 	world.dirty_renderer = std::bind(&RenderWorld::dirty, &render_world);
 
@@ -182,45 +192,134 @@ int main()
 		ImGui::NewFrame();
 
 		ImGui::Begin("Hi!");
-		ImGui::Text("i exist");
-		ImGui::SliderFloat(
-		    "x sensitivity",
-		    &x_sensitivity,
-		    0.0,
-		    0.05,
-		    "%f",
-		    ImGuiSliderFlags_Logarithmic);
-		ImGui::SliderFloat(
-		    "y sensitivity",
-		    &y_sensitivity,
-		    0.0,
-		    0.05,
-		    "%f",
-		    ImGuiSliderFlags_Logarithmic);
-		ImGui::SliderFloat(
-		    "mouse wheel sensitivity",
-		    &mouse_wheel_sensitivity,
-		    0.001,
-		    0.25,
-		    "%f",
-		    ImGuiSliderFlags_Logarithmic);
-
-		if (ImGui::BeginCombo(
-		        "Selected Turtle",
-		        render_world.selected_turtle()
-		            ? world.m_turtles[*render_world.selected_turtle()]
-		                  .name.c_str()
-		            : "none"))
+		if (ImGui::TreeNode("Settings"))
 		{
-			for (size_t i = 0; i < world.m_turtles.size(); i++)
+			ImGui::SliderFloat(
+			    "x sensitivity",
+			    &x_sensitivity,
+			    0.0,
+			    0.05,
+			    "%f",
+			    ImGuiSliderFlags_Logarithmic);
+			ImGui::SliderFloat(
+			    "y sensitivity",
+			    &y_sensitivity,
+			    0.0,
+			    0.05,
+			    "%f",
+			    ImGuiSliderFlags_Logarithmic);
+			ImGui::SliderFloat(
+			    "mouse wheel sensitivity",
+			    &mouse_wheel_sensitivity,
+			    0.001,
+			    0.25,
+			    "%f",
+			    ImGuiSliderFlags_Logarithmic);
+			ImGui::TreePop();
+		}
+		if (ImGui::TreeNode("World"))
+		{
+			if (ImGui::BeginCombo(
+			        "Selected Server",
+			        render_world.selected_server().value_or("none").c_str()))
 			{
-				auto &turtle = world.m_turtles[i];
-				if (ImGui::Selectable(turtle.name.c_str()))
+				for (auto &server : world.m_blocks)
 				{
-					render_world.select_turtle(i);
+					if (ImGui::Selectable(server.first.c_str()))
+					{
+						render_world.select_server(server.first);
+						auto first_dimension = server.second.begin();
+						if (first_dimension != server.second.end())
+						{
+							render_world.select_dimension(
+							    first_dimension->first);
+						}
+						else
+						{
+							render_world.select_dimension();
+						}
+					}
+				}
+				ImGui::EndCombo();
+			}
+
+			if (ImGui::BeginCombo(
+			        "Selected Dimension",
+			        render_world.selected_dimension().value_or("none").c_str()))
+			{
+				if (render_world.selected_server())
+				{
+					for (auto &dimension :
+					     world.m_blocks[*render_world.selected_server()])
+					{
+						if (ImGui::Selectable(dimension.first.c_str()))
+						{
+							render_world.select_dimension(dimension.first);
+						}
+					}
+				}
+				ImGui::EndCombo();
+			}
+
+			static bool show_all_turtles = false;
+
+			if (ImGui::BeginCombo(
+			        "Selected Turtle",
+			        render_world.selected_turtle_name(world)))
+			{
+				for (size_t i = 0; i < world.m_turtles.size(); i++)
+				{
+					auto &turtle = world.m_turtles[i];
+					if (show_all_turtles
+					    || turtle.position.server
+					               == render_world.selected_server()
+					           && turtle.position.dimension
+					                  == render_world.selected_dimension())
+					{
+
+						if (ImGui::Selectable(turtle.name.c_str()))
+						{
+							render_world.select_turtle(i);
+							render_world.select_server(turtle.position.server);
+							render_world.select_dimension(
+							    turtle.position.dimension);
+						}
+					}
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::Checkbox("show all turtles", &show_all_turtles);
+			ImGui::TreePop();
+		}
+
+		if (ImGui::TreeNode("import/export"))
+		{
+			static std::string filename;
+			ImGui::InputText("filename", &filename);
+			if (ImGui::Button("Import"))
+			{
+				std::fstream file{filename, std::ios::in};
+				if (file.is_open())
+				{
+					boost::archive::text_iarchive ar{file};
+					s.send_stops();
+					sleep(1);
+					ar &world;
+				}
+				else
+				{
+					std::cout << "attempt to import from file: " << filename
+					          << " failed";
 				}
 			}
-			ImGui::EndCombo();
+			ImGui::SameLine();
+			if (ImGui::Button("Export"))
+			{
+				std::fstream file{filename, std::ios::out | std::ios::trunc};
+				boost::archive::text_oarchive ar{file};
+				ar &world;
+			}
+			ImGui::TreePop();
 		}
 
 		ImGui::Checkbox("toggle demo", &demo_toggled);
@@ -235,19 +334,26 @@ int main()
 			auto &turtle = world.m_turtles[*render_world.selected_turtle()];
 			ImGui::Begin("Turtle Control");
 			static std::string eval_text;
+			ImGui::Text(
+			    "x: %i, y: %i, z: %i, o: %s, dimension: %s, server: %s",
+			    turtle.position.position.x,
+			    turtle.position.position.y,
+			    turtle.position.position.z,
+			    direction_to_string(turtle.position.direction),
+			    turtle.position.dimension.c_str(),
+			    turtle.position.server.c_str());
 			if (!turtle.connection.expired())
 			{
 				auto temp = turtle.connection.lock();
-				ImGui::Text(
-				    "x: %i, y: %i, z: %i, o: %s",
-				    turtle.position.x,
-				    turtle.position.y,
-				    turtle.position.z,
-				    Turtle::direction_to_string(turtle.direction));
 				ImGui::InputTextMultiline("eval input", &eval_text);
 				if (ImGui::Button("Submit Eval"))
 				{
 					temp->remote_eval(eval_text);
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Submit Auth"))
+				{
+					temp->auth_message(eval_text);
 				}
 			}
 			else
@@ -266,6 +372,14 @@ int main()
 	ImGui_ImplOpenGL3_Shutdown();
 	ImGui_ImplSDL2_Shutdown();
 	ImGui::DestroyContext();
+
+	{
+		std::fstream default_save{
+		    "world_default.save",
+		    std::ios::out | std::ios::trunc};
+		boost::archive::text_oarchive ar{default_save};
+		ar << world;
+	}
 
 	window.Destroy();
 	s.send_stops();
