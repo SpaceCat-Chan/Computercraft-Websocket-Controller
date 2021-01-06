@@ -474,7 +474,7 @@ class World
 		{
 			auto &turtle = m_turtles_in_progress[i - 1];
 			turtles_added = true;
-			if (turtle.second.valid())
+			if (turtle.second.wait_for(std::chrono::seconds{0}) == std::future_status::ready)
 			{
 				auto position_and_name = turtle.second.get();
 				auto position = position_and_name.first;

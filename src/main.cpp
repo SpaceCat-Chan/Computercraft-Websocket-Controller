@@ -100,6 +100,7 @@ int main()
 	world.dirty_renderer = std::bind(&RenderWorld::dirty, &render_world);
 
 	auto run_result = std::async(std::bind(&server_manager::run, &s));
+	auto scheduler = std::async(std::bind(&server_manager::scheduler, &s));
 
 	bool stop = false;
 	SDL_Event event;
@@ -382,6 +383,8 @@ int main()
 	}
 
 	window.Destroy();
+	s.scheduler_stop = true;
+	scheduler.wait();
 	s.send_stops();
 	sleep(1);
 	s.stop();

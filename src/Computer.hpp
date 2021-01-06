@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+#include <deque>
 #include <functional>
 #include <future>
 
@@ -44,29 +46,24 @@ class ComputerInterface
 	{
 		auto request = make_auth(auth);
 		auto request_id = add_request_id(request);
-		m_endpoint.send(
-		    m_connection,
-		    request.dump(),
-		    websocketpp::frame::opcode::text);
-
-		m_requests.emplace(
+		std::scoped_lock a{request_mutex};
+		m_request_queue.emplace_back(
 		    request_id,
+		    request,
 		    std::make_shared<std::promise<nlohmann::json>>());
-		return m_requests.at(request_id)->get_future();
+		return std::get<2>(m_request_queue.back())->get_future();
 	}
 
 	std::future<nlohmann::json> remote_eval(std::string to_eval)
 	{
 		auto request = make_eval(to_eval);
 		auto request_id = add_request_id(request);
-		m_endpoint.send(
-		    m_connection,
-		    request.dump(),
-		    websocketpp::frame::opcode::text);
-		m_requests.emplace(
+		std::scoped_lock a{request_mutex};
+		m_request_queue.emplace_back(
 		    request_id,
+		    request,
 		    std::make_shared<std::promise<nlohmann::json>>());
-		return m_requests.at(request_id)->get_future();
+		return std::get<2>(m_request_queue.back())->get_future();
 	}
 
 	template <typename T>
@@ -76,22 +73,24 @@ class ComputerInterface
 	{
 		auto request = make_inspect(direction);
 		auto request_id = add_request_id(request);
-		m_endpoint.send(
-		    m_connection,
-		    request.dump(),
-		    websocketpp::frame::opcode::text);
-		m_requests.emplace(
+		std::scoped_lock a{request_mutex};
+		m_request_queue.emplace_back(
 		    request_id,
+		    request,
 		    std::make_shared<std::promise<nlohmann::json>>());
-		return m_requests.at(request_id)->get_future();
+		return std::get<2>(m_request_queue.back())->get_future();
 	}
 
 	void send_stop()
 	{
-		m_endpoint.send(
-		    m_connection,
-		    make_stop().dump(),
-		    websocketpp::frame::opcode::text);
+		constexpr size_t stop_send_count = 3;
+		for (size_t i = 0; i < stop_send_count; i++)
+		{
+			m_endpoint.send(
+			    m_connection,
+			    make_stop().dump(),
+			    websocketpp::frame::opcode::text);
+		}
 	}
 
 	void recieve(server::message_ptr message)
@@ -124,6 +123,25 @@ class ComputerInterface
 	    int32_t id)
 	{
 		m_unexpected_message_handler[id] = function;
+	}
+
+	void scheduler_internal(std::chrono::duration<double> dt)
+	{
+		std::scoped_lock a{request_mutex};
+		constexpr std::chrono::duration<double> threshold{0.1};
+		if (!m_request_queue.empty() && m_time_since_last_request > threshold)
+		{
+			m_endpoint.send(
+			    m_connection,
+			    std::get<1>(m_request_queue.front()).dump(),
+			    websocketpp::frame::opcode::text);
+			m_requests.emplace(
+			    std::get<0>(m_request_queue.front()),
+			    std::get<2>(m_request_queue.front()));
+			m_request_queue.pop_front();
+			m_time_since_last_request = std::chrono::duration<double>{0};
+		}
+		m_time_since_last_request += dt;
 	}
 
 	private:
@@ -185,10 +203,18 @@ class ComputerInterface
 	size_t m_request_id_counter = 1;
 	websocketpp::connection_hdl m_connection;
 	server &m_endpoint;
+	std::deque<std::tuple<
+	    size_t,
+	    nlohmann::json,
+	    std::shared_ptr<std::promise<nlohmann::json>>>>
+	    m_request_queue;
 	std::unordered_map<size_t, std::shared_ptr<std::promise<nlohmann::json>>>
 	    m_requests;
 	std::map<int32_t, std::function<void(ComputerInterface &, nlohmann::json)>>
 	    m_unexpected_message_handler;
+
+	std::chrono::duration<double> m_time_since_last_request{1e100};
+	std::mutex request_mutex;
 
 	template <typename T>
 	friend class CommandBuffer;
@@ -285,12 +311,10 @@ std::future<T> ComputerInterface::execute_buffer(CommandBuffer<T> &buffer)
 {
 	auto request = make_command_buffer_json(buffer);
 	auto request_id = add_request_id(request);
-	m_endpoint.send(
-	    m_connection,
-	    request.dump(),
-	    websocketpp::frame::opcode::text);
-	m_requests.emplace(
+	std::scoped_lock a{request_mutex};
+	m_request_queue.emplace_back(
 	    request_id,
+	    request,
 	    std::make_shared<std::promise<nlohmann::json>>());
-	return buffer.m_parse(m_requests.at(request_id)->get_future());
+	return buffer.m_parse(std::get<2>(m_request_queue.back())->get_future());
 }

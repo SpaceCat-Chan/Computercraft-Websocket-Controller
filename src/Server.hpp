@@ -56,9 +56,27 @@ class server_manager
 		}
 	}
 
+	bool scheduler_stop = false;
+	void scheduler()
+	{
+		auto start = std::chrono::steady_clock::now();
+		while (!scheduler_stop)
+		{
+			std::this_thread::sleep_for(std::chrono::seconds{0});
+			auto now = std::chrono::steady_clock::now();
+			std::chrono::duration<double> dt = now - start;
+			for (auto &computer : m_computers)
+			{
+				computer.second->scheduler_internal(dt);
+			}
+			start = now;
+		}
+	}
+
 	void stop() { m_endpoint.stop(); }
 
-	void register_new_handler(std::function<void(std::shared_ptr<ComputerInterface>)> new_handler)
+	void register_new_handler(
+	    std::function<void(std::shared_ptr<ComputerInterface>)> new_handler)
 	{
 		m_new_handler = new_handler;
 	}
@@ -91,7 +109,7 @@ class server_manager
 		    connection,
 		    std::make_shared<ComputerInterface>(connection, m_endpoint));
 		std::cout << "computer connected\n";
-		if(m_new_handler)
+		if (m_new_handler)
 		{
 			m_new_handler(m_computers.at(connection));
 		}
