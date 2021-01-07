@@ -11,6 +11,7 @@
 
 #include "Window/Window.hpp"
 
+#include "AStar.hpp"
 #include "Computer.hpp"
 #include "Server.hpp"
 
@@ -98,9 +99,11 @@ int main()
 	}
 	RenderWorld render_world;
 	world.dirty_renderer = std::bind(&RenderWorld::dirty, &render_world);
+	world.dirty_renderer_pathes
+	    = std::bind(&RenderWorld::dirty_paths, &render_world);
 
-	auto run_result = std::async(std::bind(&server_manager::run, &s));
-	auto scheduler = std::async(std::bind(&server_manager::scheduler, &s));
+	auto run_result = std::async(&server_manager::run, &s);
+	auto scheduler = std::async(&server_manager::scheduler, &s);
 
 	bool stop = false;
 	SDL_Event event;
@@ -184,6 +187,7 @@ int main()
 		}
 
 		world.add_new_turtles();
+		world.update_pathings();
 		render_world.copy_into_buffers(world);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 		render_world.render();
@@ -355,6 +359,55 @@ int main()
 				if (ImGui::Button("Submit Auth"))
 				{
 					temp->auth_message(eval_text);
+				}
+				static glm::ivec3 path_target;
+				ImGui::InputInt3("path target", glm::value_ptr(path_target));
+				if (ImGui::Button("Path to target"))
+				{
+					if (turtle.current_pathing)
+					{
+						turtle.current_pathing->finished = true;
+						turtle.current_pathing->pather->stop = true;
+							if (turtle.current_pathing->result.valid())
+							{
+								turtle.current_pathing->result.wait();
+							}
+					}
+					turtle.current_pathing
+					    = Pathing{path_target, turtle, world};
+				}
+				if (turtle.current_pathing)
+				{
+					ImGui::Text(
+					    "current pathing: going to %i, %i, %i",
+					    turtle.current_pathing->target.x,
+					    turtle.current_pathing->target.y,
+					    turtle.current_pathing->target.z);
+					if (turtle.current_pathing->finished)
+					{
+						ImGui::Text("pathing finished");
+					}
+					if (turtle.current_pathing->unable_to_path)
+					{
+						ImGui::Text("unable to path");
+					}
+					if (ImGui::Button("clear pathing"))
+					{
+						if (turtle.current_pathing)
+						{
+							turtle.current_pathing->finished = true;
+							turtle.current_pathing->pather->stop = true;
+							if (turtle.current_pathing->result.valid())
+							{
+								turtle.current_pathing->result.wait();
+							}
+							turtle.current_pathing = std::nullopt;
+						}
+					}
+				}
+				else
+				{
+					ImGui::Text("current pathing: none");
 				}
 			}
 			else

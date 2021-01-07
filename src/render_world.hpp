@@ -4,6 +4,7 @@
 #include <glm/ext.hpp>
 
 #include "Camera/Camera.hpp"
+#include "MeshLine/MeshLine.hpp"
 #include "Shader/Shader.hpp"
 #include "TexturedMesh/TexturedMesh.hpp"
 #include "ssbo/ssbo.hpp"
@@ -18,6 +19,10 @@ class RenderWorld
 		m_shader.AddShaderFile("res/shader.vert", GL_VERTEX_SHADER);
 		m_shader.AddShaderFile("res/shader.frag", GL_FRAGMENT_SHADER);
 		m_shader.Link();
+
+		m_line_shader.AddShaderFile("res/line_shader.vert", GL_VERTEX_SHADER);
+		m_line_shader.AddShaderFile("res/line_shader.frag", GL_FRAGMENT_SHADER);
+		m_line_shader.Link();
 
 		m_block_mesh.Load("res/block.obj");
 		m_turtle_mesh.Load("res/turtle.obj");
@@ -100,6 +105,20 @@ class RenderWorld
 			m_turtle_colors.LoadData(new_turtle_colors, GL_STREAM_DRAW);
 			m_is_data_dirty = false;
 		}
+		if (m_are_pathes_dirty)
+		{
+			m_paths.clear();
+			std::scoped_lock<std::mutex> a{world.render_mutex};
+			for (auto &turtle : world.m_turtles)
+			{
+				if(turtle.current_pathing && !(turtle.current_pathing->latest_results.size() >= 2))
+				{
+					m_paths.push_back(MeshLine{});
+					m_paths.back().LoadMesh(turtle.current_pathing->latest_results);
+				}
+			}
+			m_are_pathes_dirty = true;
+		}
 	}
 
 	void render()
@@ -139,6 +158,16 @@ class RenderWorld
 		    GL_UNSIGNED_INT,
 		    0,
 		    m_turtle_positions.size());
+		
+		m_line_shader.Bind();
+		m_line_shader.SetUniform("u_view_proj" , camera.GetMVP() * glm::translate(glm::dmat4{1}, glm::dvec3{0.5, 0.5, 0.5}));
+		m_line_shader.SetUniform("u_model", glm::dmat4{1});
+
+		for(int i = 0; i < m_paths.size(); i++)
+		{
+			m_paths[i].Bind();
+			glDrawArrays(GL_LINE_STRIP, 0, m_paths[i].GetIndexCount());
+		}
 	}
 	void dirty() { m_is_data_dirty = true; }
 	void select_server(std::optional<std::string> i = {})
@@ -156,6 +185,7 @@ class RenderWorld
 		dirty();
 		m_selected_turtle = i;
 	}
+	void dirty_paths() { m_are_pathes_dirty = true; }
 	const auto &selected_server() const { return m_selected_server; }
 	const auto &selected_dimension() const { return m_selected_dimension; }
 	const auto &selected_turtle() const { return m_selected_turtle; }
@@ -182,10 +212,14 @@ class RenderWorld
 	ssbo<glm::ivec4> m_turtle_positions;
 	ssbo<glm::vec4> m_turtle_colors;
 
+	std::vector<MeshLine> m_paths;
+
 	TexturedMesh m_block_mesh;
 	TexturedMesh m_turtle_mesh;
 
 	Shader m_shader;
+	Shader m_line_shader;
 
 	bool m_is_data_dirty = false;
+	bool m_are_pathes_dirty = false;
 };

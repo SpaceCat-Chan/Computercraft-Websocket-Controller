@@ -1,20 +1,26 @@
 #pragma once
 
+#include <chrono>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 
-#include <glm/ext.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/serialization/access.hpp>
 #include <boost/serialization/unordered_map.hpp>
 #include <boost/serialization/vector.hpp>
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
+#include <glm/ext.hpp>
+#include <glm/gtx/string_cast.hpp>
 
 #include "nlohmann/json.hpp"
 
+#include "AStar.hpp"
+
 #include "Computer.hpp"
 #include "Server.hpp"
+
+using namespace std::literals;
 
 enum Direction : int
 {
@@ -23,7 +29,7 @@ enum Direction : int
 	south = 2,
 	west = 3
 };
-constexpr static glm::ivec3 orientation_to_direction(Direction d)
+constexpr static glm::ivec3 direction_to_orientation(Direction d)
 {
 	switch (d)
 	{
@@ -37,6 +43,39 @@ constexpr static glm::ivec3 orientation_to_direction(Direction d)
 		return {-1, 0, 0};
 	}
 }
+constexpr static Direction orientation_to_direction(glm::ivec3 o)
+{
+	if (o == glm::ivec3{0, 0, -1})
+	{
+		return north;
+	}
+	else if (o == glm::ivec3{1, 0, 0})
+	{
+		return east;
+	}
+	else if (o == glm::ivec3{0, 0, 1})
+	{
+		return south;
+	}
+	else if (o == glm::ivec3{-1, 0, 0})
+	{
+		return west;
+	}
+	else
+	{
+		if (std::is_constant_evaluated())
+		{
+			return static_cast<Direction>(-1);
+		}
+		else
+		{
+			std::cout << "attempted to make " << glm::to_string(o)
+			          << " into a direction\n";
+			throw std::invalid_argument{"fuck"};
+		}
+	}
+}
+
 constexpr static const char *direction_to_string(Direction d)
 {
 	switch (d)
@@ -62,12 +101,12 @@ struct WorldLocation
 	private:
 	friend class boost::serialization::access;
 	template <typename Archive>
-	void serialize(Archive& ar, const unsigned int version)
+	void serialize(Archive &ar, const unsigned int version)
 	{
-		ar & server;
-		ar & dimension;
-		ar & position;
-		ar & direction;
+		ar &server;
+		ar &dimension;
+		ar &position;
+		ar &direction;
 	}
 };
 
@@ -82,46 +121,69 @@ struct Block
 	private:
 	friend class boost::serialization::access;
 	BOOST_SERIALIZATION_SPLIT_MEMBER();
-	template<typename Archive>
-	void save (Archive& ar, const unsigned int version) const
+	template <typename Archive>
+	void save(Archive &ar, const unsigned int version) const
 	{
-		ar & position;
-		ar & color;
-		ar & name;
-		ar & metadata;
-		ar & blockstate.dump();
+		ar &position;
+		ar &color;
+		ar &name;
+		ar &metadata;
+		ar &blockstate.dump();
 	}
-	template<typename Archive>
-	void load(Archive& ar, const unsigned int version)
+	template <typename Archive>
+	void load(Archive &ar, const unsigned int version)
 	{
-		ar & position;
-		ar & color;
-		ar & name;
-		ar & metadata;
+		ar &position;
+		ar &color;
+		ar &name;
+		ar &metadata;
 		std::string blockstate_string;
-		ar & blockstate_string;
-		blockstate = blockstate_string;
+		ar &blockstate_string;
+		blockstate = nlohmann::json::parse(blockstate_string);
 	}
 };
 
-namespace boost {
-	namespace serialization {
-		template <typename Archive>
-		void serialize(Archive &ar, glm::dvec3 &vec, const unsigned int version)
-		{
-			ar & vec[0];
-			ar & vec[1];
-			ar & vec[2];
-		}
-		template <typename Archive>
-		void serialize(Archive &ar, glm::ivec3 &vec, const unsigned int version)
-		{
-			ar & vec[0];
-			ar & vec[1];
-			ar & vec[2];
-		}
-	}
+namespace boost
+{
+namespace serialization
+{
+template <typename Archive>
+void serialize(Archive &ar, glm::dvec3 &vec, const unsigned int version)
+{
+	ar &vec[0];
+	ar &vec[1];
+	ar &vec[2];
 }
+template <typename Archive>
+void serialize(Archive &ar, glm::ivec3 &vec, const unsigned int version)
+{
+	ar &vec[0];
+	ar &vec[1];
+	ar &vec[2];
+}
+} // namespace serialization
+} // namespace boost
+
+struct Turtle;
+class World;
+
+struct Pathing
+{
+	Pathing(glm::ivec3 _target, Turtle &turtle, World &world);
+	Pathing(
+	    glm::ivec3 _target,
+	    Turtle &turtle,
+	    std::function<bool(glm::ivec3)> obstacle);
+	std::unique_ptr<AStar> pather;
+	std::future<bool> result;
+	glm::ivec3 target;
+	std::vector<glm::ivec3> latest_results;
+	int movement_index
+	    = 0; // lates movement in latest_results that has been done
+	std::optional<std::future<nlohmann::json>> pending_movement;
+	bool finished = false;
+	bool unable_to_path = false;
+};
 
 struct Turtle
 {
@@ -132,14 +194,135 @@ struct Turtle
 	std::optional<std::future<
 	    std::array<std::pair<std::optional<Block>, WorldLocation>, 3>>>
 	    block_update;
-	
+	std::optional<Pathing> current_pathing;
+
+	std::future<nlohmann::json> move(Direction direction)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			int offset = (static_cast<int>(direction)
+			              - static_cast<int>(position.direction) + 4)
+			             % 4;
+			switch (offset)
+			{
+			case 0:
+				return con->execute_buffer(forward_0);
+			case 1:
+				return con->execute_buffer(forward_1);
+			case 2:
+				return con->execute_buffer(forward_2);
+			case 3:
+				return con->execute_buffer(forward_3);
+			}
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	std::future<nlohmann::json> move_up()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->execute_buffer(up);
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	std::future<nlohmann::json> move_down()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->execute_buffer(down);
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	std::future<nlohmann::json> point(Direction direction)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			int offset = (static_cast<int>(direction)
+			              - static_cast<int>(position.direction))
+			             % 4;
+			switch (offset)
+			{
+			case 0:
+				break;
+			case 1:
+				return con->execute_buffer(rotate_1);
+			case 2:
+				return con->execute_buffer(rotate_2);
+			case 3:
+				return con->execute_buffer(rotate_3);
+			}
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+
 	private:
+	class static_init_t
+	{
+		public:
+		static_init_t()
+		{
+			rotate_1.rotate("right");
+			rotate_1.SetDefaultParser();
+
+			rotate_2.rotate("right");
+			rotate_2.rotate("right");
+			rotate_2.SetDefaultParser();
+
+			rotate_3.rotate("left");
+			rotate_3.SetDefaultParser();
+
+			forward_0.move("forward");
+			forward_0.SetDefaultParser();
+
+			forward_1.buffer(rotate_1);
+			forward_1.move("forward");
+			forward_1.SetDefaultParser();
+
+			forward_2.buffer(rotate_2);
+			forward_2.move("forward");
+			forward_2.SetDefaultParser();
+
+			forward_3.buffer(rotate_3);
+			forward_3.move("forward");
+			forward_3.SetDefaultParser();
+
+			up.move("up");
+			up.SetDefaultParser();
+			down.move("down");
+			down.SetDefaultParser();
+		}
+	};
+	friend class static_init_t;
+	static static_init_t static_init;
+
+	static CommandBuffer<nlohmann::json> rotate_1;
+	static CommandBuffer<nlohmann::json> rotate_2;
+	static CommandBuffer<nlohmann::json> rotate_3;
+	static CommandBuffer<nlohmann::json> forward_0;
+	static CommandBuffer<nlohmann::json> forward_1;
+	static CommandBuffer<nlohmann::json> forward_2;
+	static CommandBuffer<nlohmann::json> forward_3;
+	static CommandBuffer<nlohmann::json> up;
+	static CommandBuffer<nlohmann::json> down;
+
 	friend class boost::serialization::access;
 	template <typename Archive>
-	void serialize(Archive & ar, const unsigned int version)
+	void serialize(Archive &ar, const unsigned int version)
 	{
-		ar & position;
-		ar & name;
+		ar &position;
+		ar &name;
 	}
 };
 
@@ -188,6 +371,7 @@ void erase_nested(std::unordered_map<T, V> &erase_from, const T &to_erase)
 class World
 {
 	friend class boost::serialization::access;
+
 	public:
 	World()
 	{
@@ -223,7 +407,7 @@ class World
 				{
 				case 0:
 					block_direction
-					    = orientation_to_direction(turtle.direction);
+					    = direction_to_orientation(turtle.direction);
 					break;
 				case 1:
 					block_direction = {0, 1, 0};
@@ -449,6 +633,7 @@ class World
 		sleep(1);
 		m_turtles_in_progress.push_back(
 		    {turtle, turtle->execute_buffer(position_and_name)});
+		turtle->auth_message("welcome");
 		turtle->set_unexpected_message_handler(
 		    std::bind(
 		        &World::update_block_from_JSON,
@@ -474,7 +659,8 @@ class World
 		{
 			auto &turtle = m_turtles_in_progress[i - 1];
 			turtles_added = true;
-			if (turtle.second.wait_for(std::chrono::seconds{0}) == std::future_status::ready)
+			if (turtle.second.wait_for(std::chrono::seconds{0})
+			    == std::future_status::ready)
 			{
 				auto position_and_name = turtle.second.get();
 				auto position = position_and_name.first;
@@ -526,6 +712,156 @@ class World
 		}
 	}
 
+	void update_pathings()
+	{
+		std::scoped_lock<std::mutex> a{render_mutex};
+		for (auto &turtle : m_turtles)
+		{
+			if (turtle.current_pathing && !turtle.current_pathing->finished)
+			{
+				if (turtle.current_pathing->pending_movement)
+				{
+					if (turtle.current_pathing->pending_movement->wait_for(0s)
+					    == std::future_status::ready)
+					{
+						if (turtle_requires_repath(turtle))
+						{
+							turtle.current_pathing->pather
+							    = std::make_unique<AStar>(
+							        turtle.position.position,
+							        turtle.current_pathing->target,
+							        make_turtle_obstacle_function(turtle));
+							turtle.current_pathing->result = std::async(
+							    &AStar::run,
+							    turtle.current_pathing->pather.get());
+							turtle.current_pathing->pending_movement
+							    = std::nullopt;
+							turtle.current_pathing->latest_results.clear();
+							dirty_renderer_pathes();
+							turtle.current_pathing->movement_index = 0;
+						}
+						else
+						{
+							if (turtle.position.position
+							    == turtle.current_pathing->target)
+							{
+								turtle.current_pathing->finished = true;
+							}
+							else
+							{
+								start_next_pathing_move(turtle);
+							}
+						}
+					}
+				}
+				else
+				{
+					if (turtle.current_pathing->result.wait_for(0s)
+					    == std::future_status::ready)
+					{
+						auto result = turtle.current_pathing->result.get();
+						if (result)
+						{
+							if (turtle.position.position
+							    == turtle.current_pathing->target)
+							{
+								turtle.current_pathing->finished = true;
+							}
+							else
+							{
+								turtle.current_pathing->latest_results
+								    = turtle.current_pathing->pather
+								          ->path_result();
+								dirty_renderer_pathes();
+								start_next_pathing_move(turtle);
+							}
+						}
+						else
+						{
+							turtle.current_pathing->finished = true;
+							turtle.current_pathing->unable_to_path = true;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	void start_next_pathing_move(Turtle &turtle)
+	{
+		auto &mi = turtle.current_pathing->movement_index;
+		auto move_diff = turtle.current_pathing->latest_results[mi + 1]
+		                 - turtle.current_pathing->latest_results[mi];
+		std::cout << "from: "
+		          << glm::to_string(turtle.current_pathing->latest_results[mi])
+		          << "\nto: "
+		          << glm::to_string(
+		                 turtle.current_pathing->latest_results[mi + 1])
+		          << "\ndelta: " << glm::to_string(move_diff) << '\n';
+		if (move_diff == glm::ivec3{0, 1, 0})
+		{
+			turtle.current_pathing->pending_movement = turtle.move_up();
+		}
+		else if (move_diff == glm::ivec3{0, -1, 0})
+		{
+			turtle.current_pathing->pending_movement = turtle.move_down();
+		}
+		else
+		{
+			turtle.current_pathing->pending_movement
+			    = turtle.move(orientation_to_direction(move_diff));
+		}
+		mi++;
+	}
+
+	bool turtle_requires_repath(Turtle &turtle)
+	{
+		return turtle.current_pathing->pather->obstacle(
+		    turtle.current_pathing
+		        ->latest_results[turtle.current_pathing->movement_index + 1]) || turtle.position.position != turtle.current_pathing->latest_results[turtle.current_pathing->movement_index];
+		
+	}
+
+	std::function<bool(glm::ivec3)>
+	make_turtle_obstacle_function(Turtle &turtle)
+	{
+		return [this,
+		        name = turtle.name,
+		        server_name = turtle.position.server,
+		        dimension_name
+		        = turtle.position.dimension](glm::ivec3 location) -> bool {
+			if (auto server = m_blocks.find(server_name);
+			    server != m_blocks.end())
+			{
+				if (auto dimension = server->second.find(dimension_name);
+				    dimension != server->second.end())
+				{
+					if (auto x = dimension->second.find(location.x);
+					    x != dimension->second.end())
+					{
+						if (auto y = x->second.find(location.y);
+						    y != x->second.end())
+						{
+							if (auto z = y->second.find(location.z);
+							    z != y->second.end())
+							{
+								return true;
+							}
+						}
+					}
+				}
+			}
+			for (auto &turtle : m_turtles)
+			{
+				if (turtle.position.position == location && turtle.name != name)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+	}
+
 	std::mutex render_mutex;
 
 	CommandBuffer<std::array<std::pair<std::optional<Block>, WorldLocation>, 3>>
@@ -548,12 +884,13 @@ class World
 	    m_turtles_in_progress;
 
 	std::function<void(void)> dirty_renderer;
+	std::function<void(void)> dirty_renderer_pathes;
 
 	private:
-	template<typename Archive>
-	void serialize(Archive& ar, const unsigned int version)
+	template <typename Archive>
+	void serialize(Archive &ar, const unsigned int version)
 	{
-		ar & m_blocks;
-		ar & m_turtles;
+		ar &m_blocks;
+		ar &m_turtles;
 	}
 };

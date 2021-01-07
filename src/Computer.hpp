@@ -80,6 +80,28 @@ class ComputerInterface
 		    std::make_shared<std::promise<nlohmann::json>>());
 		return std::get<2>(m_request_queue.back())->get_future();
 	}
+	std::future<nlohmann::json> rotate(std::string direction)
+	{
+		auto request = make_rotate(direction);
+		auto request_id = add_request_id(request);
+		std::scoped_lock a{request_mutex};
+		m_request_queue.emplace_back(
+		    request_id,
+		    request,
+		    std::make_shared<std::promise<nlohmann::json>>());
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	std::future<nlohmann::json> move(std::string direction)
+	{
+		auto request = make_move(direction);
+		auto request_id = add_request_id(request);
+		std::scoped_lock a{request_mutex};
+		m_request_queue.emplace_back(
+		    request_id,
+		    request,
+		    std::make_shared<std::promise<nlohmann::json>>());
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
 
 	void send_stop()
 	{
@@ -192,6 +214,30 @@ class ComputerInterface
 		inspect.at("direction") = direction;
 		return inspect;
 	}
+	static nlohmann::json make_rotate(std::string direction)
+	{
+		auto rotate = R"(
+			{
+				"request_type": "rotate",
+				"request_id": -1,
+				"direction": ""
+			}
+		)"_json;
+		rotate.at("direction") = direction;
+		return rotate;
+	}
+	static nlohmann::json make_move(std::string direction)
+	{
+		auto move = R"(
+			{
+				"request_type": "move",
+				"request_id": -1,
+				"direction": ""
+			}
+		)"_json;
+		move.at("direction") = direction;
+		return move;
+	}
 
 	size_t add_request_id(nlohmann::json &request)
 	{
@@ -257,6 +303,18 @@ class CommandBuffer
 		m_commands.at("commands")
 		    .push_back(ComputerInterface::make_inspect(direction));
 	}
+	void rotate(std::string direction)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_rotate(direction));
+	}
+	void move(std::string direction)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_move(direction));
+	}
 	constexpr void stop()
 	{
 		m_commands.at("commands").push_back(ComputerInterface::make_stop());
@@ -269,7 +327,7 @@ class CommandBuffer
 	}
 	constexpr void SetDefaultParser()
 	{
-		m_output_parser = [](nlohmann::json &m) { return m; };
+		m_output_parser = [](nlohmann::json m) -> nlohmann::json { return m; };
 	}
 
 	private:
