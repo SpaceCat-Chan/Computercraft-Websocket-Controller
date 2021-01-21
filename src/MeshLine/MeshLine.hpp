@@ -73,7 +73,7 @@ class MeshLine
 		    points.data(),
 		    GL_STATIC_DRAW);
 
-		glVertexAttribPointer(0, 3, GL_FLOAT, false, 0, nullptr);
+		glVertexAttribPointer(0, 3, GL_INT, false, 0, nullptr);
 		glEnableVertexAttribArray(0);
 	}
 

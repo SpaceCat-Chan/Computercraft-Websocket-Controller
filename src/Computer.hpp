@@ -175,7 +175,6 @@ class ComputerInterface
 				"token": "a"
 			}
 		)"_json;
-		std::hash<websocketpp::connection_hdl> hash;
 		request["token"] = auth;
 		return request;
 	}

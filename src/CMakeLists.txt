@@ -14,3 +14,5 @@ target_link_libraries(controller PRIVATE ${Boost_LIBRARIES} Threads::Threads nlo
 add_custom_target(controller_CopyFiles COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/res ${CMAKE_CURRENT_BINARY_DIR}/res)
 
 add_dependencies(controller controller_CopyFiles)
+
+target_compile_options(controller PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter)

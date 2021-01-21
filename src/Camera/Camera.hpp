@@ -63,6 +63,11 @@ public:
 	 */
 	Locked GetViewLock();
 
+	glm::dvec3 GetUpVector() const
+	{
+		return m_Up;
+	}
+
 	void SetView(glm::dmat4x4 View);
 	glm::dmat4x4 GetView() const;
 

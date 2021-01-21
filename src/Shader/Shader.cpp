@@ -1,5 +1,7 @@
 #include "Shader.hpp"
 
+#include <memory>
+
 Shader::Shader()
 {
 	m_ShaderProgram = glCreateProgram();
@@ -34,6 +36,19 @@ const Shader &Shader::operator=(Shader &&Move)
 void Shader::Link()
 {
 	glLinkProgram(m_ShaderProgram);
+	GLint a;
+	glGetProgramiv(m_ShaderProgram, GL_LINK_STATUS, &a);
+	if(a == GL_FALSE)
+	{
+		GLint log_length;
+		glGetProgramiv(m_ShaderProgram, GL_INFO_LOG_LENGTH, &log_length);
+		if(log_length != 0)
+		{
+			auto log = std::make_unique<char[]>(log_length);
+			glGetProgramInfoLog(m_ShaderProgram, log_length, nullptr, log.get());
+			std::cout << log.get();
+		}
+	}
 	m_Linked = true;
 }
 

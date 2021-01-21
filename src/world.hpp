@@ -477,7 +477,16 @@ class World
 		position_and_name.SupplyOutputParser(
 		    [position_parse](nlohmann::json result) {
 			    auto position = position_parse(result.at(0));
-			    return std::pair{position, result.at(1).at("returns").at(1)};
+			    if (result.at(1).at("returns").size() == 2)
+			    {
+				    return std::pair{
+				        position,
+				        std::optional{result.at(1).at("returns").at(1)}};
+			    }
+			    else
+			    {
+				    return std::pair{position, std::optional<nlohmann::json>{}};
+			    }
 		    });
 	}
 
@@ -544,6 +553,11 @@ class World
 	{
 		if (block.first)
 		{
+			if (block.first->name == "computercraft:turtle_expanded"
+			    || block.first->name == "computercraft:turtle_advanced")
+			{
+				return;
+			}
 			m_blocks[block.second.server][block.second.dimension]
 			        [block.second.position.x][block.second.position.y]
 			        [block.second.position.z]
@@ -665,7 +679,15 @@ class World
 				auto position_and_name = turtle.second.get();
 				auto position = position_and_name.first;
 				auto info = position_and_name.second;
-				auto label = info.get<std::string>();
+				std::string label;
+				if (info)
+				{
+					label = info->get<std::string>();
+				}
+				else
+				{
+					label = hash(turtle.first);
+				}
 				std::cout << "adding computer with label " << label
 				          << " to world\n";
 				bool found = false;
@@ -675,10 +697,6 @@ class World
 					{
 						std::cout << "found turtle already in world\n";
 						check_turtle.connection = turtle.first;
-						auto name = std::to_string(hash(turtle.first));
-						check_turtle.name = name;
-						turtle.first->remote_eval(
-						    "os.setComputerLabel(\"" + name + "\")");
 						check_turtle.position.position = position.position;
 						check_turtle.position.direction = position.direction;
 						check_turtle.position.server = position.server;
@@ -817,9 +835,11 @@ class World
 	bool turtle_requires_repath(Turtle &turtle)
 	{
 		return turtle.current_pathing->pather->obstacle(
-		    turtle.current_pathing
-		        ->latest_results[turtle.current_pathing->movement_index + 1]) || turtle.position.position != turtle.current_pathing->latest_results[turtle.current_pathing->movement_index];
-		
+		           turtle.current_pathing->latest_results
+		               [turtle.current_pathing->movement_index + 1])
+		       || turtle.position.position
+		              != turtle.current_pathing->latest_results
+		                     [turtle.current_pathing->movement_index];
 	}
 
 	std::function<bool(glm::ivec3)>
@@ -867,7 +887,8 @@ class World
 	CommandBuffer<std::array<std::pair<std::optional<Block>, WorldLocation>, 3>>
 	    surrounding_blocks_buffer;
 	CommandBuffer<WorldLocation> position_buffer;
-	CommandBuffer<std::pair<WorldLocation, nlohmann::json>> position_and_name;
+	CommandBuffer<std::pair<WorldLocation, std::optional<nlohmann::json>>>
+	    position_and_name;
 	std::unordered_map<
 	    std::string,
 	    std::unordered_map<
@@ -880,7 +901,7 @@ class World
 	std::vector<Turtle> m_turtles;
 	std::vector<std::pair<
 	    std::shared_ptr<ComputerInterface>,
-	    std::future<std::pair<WorldLocation, nlohmann::json>>>>
+	    std::future<std::pair<WorldLocation, std::optional<nlohmann::json>>>>>
 	    m_turtles_in_progress;
 
 	std::function<void(void)> dirty_renderer;

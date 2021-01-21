@@ -24,12 +24,17 @@ class RenderWorld
 		m_line_shader.AddShaderFile("res/line_shader.frag", GL_FRAGMENT_SHADER);
 		m_line_shader.Link();
 
+		m_basic_shader.AddShaderFile("res/basic_shader.vert", GL_VERTEX_SHADER);
+		m_basic_shader.AddShaderFile("res/shader.frag", GL_FRAGMENT_SHADER);
+		m_basic_shader.Link();
+
 		m_block_mesh.Load("res/block.obj");
 		m_turtle_mesh.Load("res/turtle.obj");
+		m_selected_mesh.Load("res/selection.obj");
 
 		camera.MoveTo({2, 2, 2});
 		camera.LookAt({0, 0, 0});
-		camera.CreateProjectionX(45.0, 16.0 / 9.0, 0.1, 100.0);
+		camera.CreateProjectionX(45.0, 16.0 / 9.0, 0.1, 10000.0);
 	}
 
 	void copy_into_buffers(World &world)
@@ -111,10 +116,12 @@ class RenderWorld
 			std::scoped_lock<std::mutex> a{world.render_mutex};
 			for (auto &turtle : world.m_turtles)
 			{
-				if(turtle.current_pathing && !(turtle.current_pathing->latest_results.size() >= 2))
+				if (turtle.current_pathing
+				    && !(turtle.current_pathing->latest_results.size() >= 2))
 				{
 					m_paths.push_back(MeshLine{});
-					m_paths.back().LoadMesh(turtle.current_pathing->latest_results);
+					m_paths.back().LoadMesh(
+					    turtle.current_pathing->latest_results);
 				}
 			}
 			m_are_pathes_dirty = true;
@@ -137,6 +144,21 @@ class RenderWorld
 		    GL_UNSIGNED_INT,
 		    0,
 		    m_block_positions.size());
+		if (selected_location)
+		{
+			m_basic_shader.Bind();
+			m_basic_shader.SetUniform("u_view_proj", camera.GetMVP());
+			m_basic_shader.SetUniform(
+			    "u_model",
+			    glm::translate(glm::mat4{1}, *selected_location));
+
+			m_selected_mesh.Bind(m_basic_shader);
+			glDrawElements(
+			    GL_TRIANGLES,
+			    m_selected_mesh.GetIndexCount(0),
+			    GL_UNSIGNED_INT,
+			    nullptr);
+		}
 
 		m_shader.SetUniform(
 		    "u_view_proj",
@@ -158,12 +180,15 @@ class RenderWorld
 		    GL_UNSIGNED_INT,
 		    0,
 		    m_turtle_positions.size());
-		
+
 		m_line_shader.Bind();
-		m_line_shader.SetUniform("u_view_proj" , camera.GetMVP() * glm::translate(glm::dmat4{1}, glm::dvec3{0.5, 0.5, 0.5}));
+		m_line_shader.SetUniform(
+		    "u_view_proj",
+		    camera.GetMVP()
+		        * glm::translate(glm::dmat4{1}, glm::dvec3{0.5, 0.5, 0.5}));
 		m_line_shader.SetUniform("u_model", glm::dmat4{1});
 
-		for(int i = 0; i < m_paths.size(); i++)
+		for (size_t i = 0; i < m_paths.size(); i++)
 		{
 			m_paths[i].Bind();
 			glDrawArrays(GL_LINE_STRIP, 0, m_paths[i].GetIndexCount());
@@ -200,6 +225,10 @@ class RenderWorld
 			return "none";
 		}
 	}
+	void select_location(std::optional<glm::vec3> location)
+	{
+		selected_location = location;
+	}
 
 	Camera camera;
 
@@ -207,6 +236,7 @@ class RenderWorld
 	std::optional<std::string> m_selected_server;
 	std::optional<std::string> m_selected_dimension;
 	std::optional<size_t> m_selected_turtle;
+	std::optional<glm::vec3> selected_location;
 	ssbo<glm::ivec4> m_block_positions;
 	ssbo<glm::vec4> m_block_colors;
 	ssbo<glm::ivec4> m_turtle_positions;
@@ -216,9 +246,11 @@ class RenderWorld
 
 	TexturedMesh m_block_mesh;
 	TexturedMesh m_turtle_mesh;
+	TexturedMesh m_selected_mesh;
 
 	Shader m_shader;
 	Shader m_line_shader;
+	Shader m_basic_shader;
 
 	bool m_is_data_dirty = false;
 	bool m_are_pathes_dirty = false;

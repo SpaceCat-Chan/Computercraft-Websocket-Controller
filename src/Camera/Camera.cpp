@@ -115,8 +115,8 @@ void Camera::CreateProjectionX(double fovX, double AspectRatio, double NearClip,
 
 void Camera::LookIn(glm::dvec3 Direction, glm::dvec3 Up /*={0, 1, 0}*/)
 {
-	m_LookVector = Direction;
-	m_Up = Up;
+	m_LookVector = glm::normalize(Direction);
+	m_Up = glm::normalize(Up);
 
 	LockViewDirection();
 }
@@ -133,7 +133,7 @@ void Camera::LookIn(double Pitch /*=0*/, double Yaw /*=glm::radians(-90)*/, doub
 void Camera::LookAt(glm::dvec3 Position, glm::dvec3 Up /*={0, 1, 0}*/)
 {
 	m_LookVector = Position;
-	m_Up = Up;
+	m_Up = glm::normalize(Up);
 
 	LockViewPosition();
 }
