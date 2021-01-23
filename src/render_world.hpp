@@ -37,11 +37,12 @@ class RenderWorld
 		camera.CreateProjectionX(45.0, 16.0 / 9.0, 0.1, 10000.0);
 	}
 
-	void copy_into_buffers(World &world)
+	void copy_into_buffers(World &world, bool in_freecam)
 	{
 		if (m_is_data_dirty)
 		{
-			if (m_selected_turtle)
+			std::scoped_lock<std::mutex> a{world.render_mutex};
+			if (m_selected_turtle && !in_freecam)
 			{
 				auto &turtle = world.m_turtles[*m_selected_turtle];
 				auto old_camera_look_at = camera.GetViewVector();
@@ -54,7 +55,6 @@ class RenderWorld
 				    glm::dvec3{turtle.position.position}
 				    + glm::dvec3{0.5, 0.5, 0.5} + look_to_pos);
 			}
-			std::scoped_lock<std::mutex> a{world.render_mutex};
 			std::vector<glm::ivec4> new_block_positions;
 			std::vector<glm::vec4> new_block_colors;
 			std::vector<glm::ivec4> new_turtle_positions;

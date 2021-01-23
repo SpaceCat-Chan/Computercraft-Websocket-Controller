@@ -120,7 +120,7 @@ struct Block
 
 	private:
 	friend class boost::serialization::access;
-	BOOST_SERIALIZATION_SPLIT_MEMBER();
+	BOOST_SERIALIZATION_SPLIT_MEMBER()
 	template <typename Archive>
 	void save(Archive &ar, const unsigned int version) const
 	{

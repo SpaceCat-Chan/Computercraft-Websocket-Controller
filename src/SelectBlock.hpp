@@ -45,7 +45,7 @@ glm::vec2 box_intersection(RayInfo &info, glm::dvec3 box_position)
 	return glm::vec2(tN, tF);
 }
 
-std::variant<glm::ivec3, size_t, std::monostate> find_selected(
+std::variant<std::monostate, glm::ivec3, size_t> find_selected(
     RayInfo ray,
     World &world,
     std::string server,
@@ -81,7 +81,7 @@ std::variant<glm::ivec3, size_t, std::monostate> find_selected(
 	std::function<bool(int)> z_valid
 	    = make_valid_function(ray.ray_origin.z, ray.ray_direction.z);
 	double current_min_distance = std::numeric_limits<double>::max();
-	std::variant<glm::ivec3, size_t, std::monostate> current_selected{
+	std::variant<std::monostate, glm::ivec3, size_t> current_selected{
 	    std::monostate{}};
 	for (auto &x : world.m_blocks[server][dimension])
 	{

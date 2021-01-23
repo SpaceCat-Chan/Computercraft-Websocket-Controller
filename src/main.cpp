@@ -122,10 +122,8 @@ int main()
 	bool demo_toggled = false;
 	auto now = std::chrono::steady_clock::now();
 	float autosave_interval = 2.5;
-	std::variant<glm::ivec3, size_t, std::monostate> currently_hovered
-	    = {std::monostate{}};
-	std::variant<glm::ivec3, size_t, std::monostate> currently_selected
-	    = {std::monostate{}};
+	std::variant<std::monostate, glm::ivec3, size_t > currently_hovered{std::monostate{}};
+	std::variant<std::monostate, glm::ivec3, size_t> currently_selected{std::monostate{}};
 	std::chrono::steady_clock::time_point mouse_down_time;
 	bool in_freecam = false;
 	auto frame_end_time = std::chrono::steady_clock::now();
@@ -275,22 +273,22 @@ int main()
 			    world,
 			    *render_world.selected_server(),
 			    *render_world.selected_dimension());
-			if (currently_hovered.index() == 2)
+			if (currently_hovered.index() == 0)
 			{
 				render_world.select_location(std::nullopt);
 			}
-			else if (currently_hovered.index() == 0)
+			else if (currently_hovered.index() == 1)
 			{
-				auto selected_value = std::get<0>(currently_hovered);
+				auto selected_value = std::get<1>(currently_hovered);
 				auto &Block = world.m_blocks[*render_world.selected_server()]
 				                            [*render_world.selected_dimension()]
 				                            [selected_value.x][selected_value.y]
 				                            [selected_value.z];
 				render_world.select_location(Block.position.position);
 			}
-			else if (currently_hovered.index() == 1)
+			else if (currently_hovered.index() == 2)
 			{
-				auto selected_turtle = std::get<1>(currently_hovered);
+				auto selected_turtle = std::get<2>(currently_hovered);
 				auto &turtle = world.m_turtles[selected_turtle];
 				render_world.select_location(turtle.position.position);
 			}
@@ -342,7 +340,7 @@ int main()
 
 		world.add_new_turtles();
 		world.update_pathings();
-		render_world.copy_into_buffers(world);
+		render_world.copy_into_buffers(world, in_freecam);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 		render_world.render();
 
@@ -514,8 +512,9 @@ int main()
 
 		if (render_world.selected_turtle())
 		{
+			static bool open = true;
 			auto &turtle = world.m_turtles[*render_world.selected_turtle()];
-			ImGui::Begin("Turtle Control");
+			ImGui::Begin("Turtle Control", &open);
 			static std::string eval_text;
 			ImGui::Text(
 			    "x: %i, y: %i, z: %i, o: %s, dimension: %s, server: %s",
@@ -594,17 +593,22 @@ int main()
 			}
 
 			ImGui::End();
+			if(!open)
+			{
+				render_world.select_turtle(std::nullopt);
+				open = true;
+			}
 		}
 
-		if (currently_selected.index() != 2)
+		if (currently_selected.index() !=0)
 		{
 			static bool open = true;
 			if (ImGui::Begin("selection", &open))
 			{
-				if (currently_selected.index() == 0)
+				if (currently_selected.index() == 1)
 				{
 					// block
-					auto selected_value = std::get<0>(currently_selected);
+					auto selected_value = std::get<1>(currently_selected);
 					auto &Block
 					    = world.m_blocks[*render_world.selected_server()]
 					                    [*render_world.selected_dimension()]
@@ -631,10 +635,10 @@ int main()
 						render_world.dirty();
 					}
 				}
-				else if (currently_selected.index() == 1)
+				else if (currently_selected.index() == 2)
 				{
 					// turtle
-					auto selected_turtle = std::get<1>(currently_selected);
+					auto selected_turtle = std::get<2>(currently_selected);
 					auto &turtle = world.m_turtles[selected_turtle];
 					render_world.select_location(turtle.position.position);
 					ImGui::Text(
