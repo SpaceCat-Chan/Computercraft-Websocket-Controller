@@ -29,6 +29,11 @@ enum Direction : int
 	south = 2,
 	west = 3
 };
+
+Direction operator+(Direction a, int i);
+Direction operator-(Direction a, int i);
+Direction operator-(Direction a);
+
 constexpr static glm::ivec3 direction_to_orientation(Direction d)
 {
 	switch (d)
@@ -220,6 +225,28 @@ struct Turtle
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
+	std::future<nlohmann::json> move_forwards()
+	{
+		if(!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->move("forward");
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	std::future<nlohmann::json> move_backwards()
+	{
+		if(!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->move("back");
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
 	std::future<nlohmann::json> move_up()
 	{
 		if (!connection.expired())
@@ -247,8 +274,8 @@ struct Turtle
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
-			int offset = (static_cast<int>(direction)
-			              - static_cast<int>(position.direction))
+			int offset = ((static_cast<int>(direction)
+			              - static_cast<int>(position.direction)) + 4)
 			             % 4;
 			switch (offset)
 			{
@@ -261,6 +288,28 @@ struct Turtle
 			case 3:
 				return con->execute_buffer(rotate_3);
 			}
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	std::future<nlohmann::json> rotate_right()
+	{
+		if(!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->rotate("right");
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	std::future<nlohmann::json> rotate_left()
+	{
+		if(!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->rotate("left");
 		}
 		std::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());

@@ -122,8 +122,10 @@ int main()
 	bool demo_toggled = false;
 	auto now = std::chrono::steady_clock::now();
 	float autosave_interval = 2.5;
-	std::variant<std::monostate, glm::ivec3, size_t > currently_hovered{std::monostate{}};
-	std::variant<std::monostate, glm::ivec3, size_t> currently_selected{std::monostate{}};
+	std::variant<std::monostate, glm::ivec3, size_t> currently_hovered{
+	    std::monostate{}};
+	std::variant<std::monostate, glm::ivec3, size_t> currently_selected{
+	    std::monostate{}};
 	std::chrono::steady_clock::time_point mouse_down_time;
 	bool in_freecam = false;
 	auto frame_end_time = std::chrono::steady_clock::now();
@@ -537,38 +539,13 @@ int main()
 				{
 					temp->auth_message(eval_text);
 				}
-				static glm::ivec3 path_target;
-				ImGui::InputInt3("path target", glm::value_ptr(path_target));
-				if (ImGui::Button("Path to target"))
+				if (ImGui::TreeNode("Pathing"))
 				{
-					if (turtle.current_pathing)
-					{
-						turtle.current_pathing->finished = true;
-						turtle.current_pathing->pather->stop = true;
-						if (turtle.current_pathing->result.valid())
-						{
-							turtle.current_pathing->result.wait();
-						}
-					}
-					turtle.current_pathing
-					    = Pathing{path_target, turtle, world};
-				}
-				if (turtle.current_pathing)
-				{
-					ImGui::Text(
-					    "current pathing: going to %i, %i, %i",
-					    turtle.current_pathing->target.x,
-					    turtle.current_pathing->target.y,
-					    turtle.current_pathing->target.z);
-					if (turtle.current_pathing->finished)
-					{
-						ImGui::Text("pathing finished");
-					}
-					if (turtle.current_pathing->unable_to_path)
-					{
-						ImGui::Text("unable to path");
-					}
-					if (ImGui::Button("clear pathing"))
+					static glm::ivec3 path_target;
+					ImGui::InputInt3(
+					    "path target",
+					    glm::value_ptr(path_target));
+					if (ImGui::Button("Path to target"))
 					{
 						if (turtle.current_pathing)
 						{
@@ -578,13 +555,81 @@ int main()
 							{
 								turtle.current_pathing->result.wait();
 							}
-							turtle.current_pathing = std::nullopt;
+						}
+						turtle.current_pathing
+						    = Pathing{path_target, turtle, world};
+					}
+					if (turtle.current_pathing)
+					{
+						ImGui::Text(
+						    "current pathing: going to %i, %i, %i",
+						    turtle.current_pathing->target.x,
+						    turtle.current_pathing->target.y,
+						    turtle.current_pathing->target.z);
+						if (turtle.current_pathing->finished)
+						{
+							ImGui::Text("pathing finished");
+						}
+						if (turtle.current_pathing->unable_to_path)
+						{
+							ImGui::Text("unable to path");
+						}
+						if (ImGui::Button("clear pathing"))
+						{
+							if (turtle.current_pathing)
+							{
+								turtle.current_pathing->finished = true;
+								turtle.current_pathing->pather->stop = true;
+								if (turtle.current_pathing->result.valid())
+								{
+									turtle.current_pathing->result.wait();
+								}
+								turtle.current_pathing = std::nullopt;
+							}
 						}
 					}
+					else
+					{
+						ImGui::Text("current pathing: none");
+					}
+					ImGui::TreePop();
 				}
-				else
+				if (ImGui::TreeNode("Movement"))
 				{
-					ImGui::Text("current pathing: none");
+					ImGui::BeginGroup();
+					if (ImGui::Button("Rotate Left"))
+					{
+						turtle.rotate_left();
+					}
+					if (ImGui::Button("Move Backwards"))
+					{
+						turtle.move_backwards();
+					}
+					ImGui::EndGroup();
+					ImGui::SameLine();
+					ImGui::BeginGroup();
+					if (ImGui::Button("Move Up"))
+					{
+						turtle.move_up();
+					}
+					ImGui::Button("Turtle Image");
+					if(ImGui::Button("Move Down"))
+					{
+						turtle.move_down();
+					}
+					ImGui::EndGroup();
+					ImGui::SameLine();
+					ImGui::BeginGroup();
+					if (ImGui::Button("Rotate Right"))
+					{
+						turtle.rotate_right();
+					}
+					if (ImGui::Button("Move Forwards"))
+					{
+						turtle.move_forwards();
+					}
+					ImGui::EndGroup();
+					ImGui::TreePop();
 				}
 			}
 			else
@@ -593,14 +638,14 @@ int main()
 			}
 
 			ImGui::End();
-			if(!open)
+			if (!open)
 			{
 				render_world.select_turtle(std::nullopt);
 				open = true;
 			}
 		}
 
-		if (currently_selected.index() !=0)
+		if (currently_selected.index() != 0)
 		{
 			static bool open = true;
 			if (ImGui::Begin("selection", &open))

@@ -30,3 +30,16 @@ Pathing::Pathing(
 	    = std::make_unique<AStar>(turtle.position.position, _target, obstacle);
 	result = std::async(&AStar::run, pather.get());
 }
+
+Direction operator+(Direction a, int i)
+{
+	return static_cast<Direction>((static_cast<int>(a) + i) % 4);
+}
+Direction operator-(Direction a, int i)
+{
+	return static_cast<Direction>(((static_cast<int>(a) - i) + 4) % 4);
+}
+Direction operator-(Direction a)
+{
+	return static_cast<Direction>((static_cast<int>(a) + 2) % 4);
+}
