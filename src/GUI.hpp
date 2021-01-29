@@ -20,7 +20,7 @@ void draw_selected_ui(
     World &world,
     RenderWorld &render_world,
     std::variant<std::monostate, glm::ivec3, size_t> &currently_selected);
-void draw_selected_ui(
+bool draw_selected_ui(
     Turtle &selected,
     World &world,
     RenderWorld &render_world,

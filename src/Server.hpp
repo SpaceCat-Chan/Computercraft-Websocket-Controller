@@ -88,6 +88,7 @@ class server_manager
 	    connection_equal>
 	    m_computers;
 
+	server m_endpoint;
 	private:
 	void echo_handler(
 	    websocketpp::connection_hdl connection,
@@ -121,5 +122,4 @@ class server_manager
 	}
 
 	std::function<void(std::shared_ptr<ComputerInterface>)> m_new_handler;
-	server m_endpoint;
 };

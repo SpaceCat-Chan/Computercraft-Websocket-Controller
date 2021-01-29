@@ -115,6 +115,11 @@ class ComputerInterface
 		}
 	}
 
+	void close(const websocketpp::close::status::value status, const std::string &why)
+	{
+		m_endpoint.close(m_connection, status, why);
+	}
+
 	void recieve(server::message_ptr message)
 	{
 		auto json_response = nlohmann::json::parse(message->get_payload());

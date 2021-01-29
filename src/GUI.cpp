@@ -325,7 +325,7 @@ void draw_selected_ui(
 	}
 }
 
-void draw_selected_ui(
+bool draw_selected_ui(
     Turtle &turtle,
     World &world,
     RenderWorld &render_world,
@@ -334,16 +334,34 @@ void draw_selected_ui(
 	render_world.select_location(turtle.position.position);
 	ImGui::Text(
 	    "pos: {%i, %i, %i}, o: %s\n dimension: %s\n "
-	    "server: %s",
+	    "server: %s\nname: %s",
 	    turtle.position.position.x,
 	    turtle.position.position.y,
 	    turtle.position.position.z,
 	    direction_to_string(turtle.position.direction),
 	    turtle.position.dimension.c_str(),
-	    turtle.position.server.c_str());
+	    turtle.position.server.c_str(),
+	    turtle.name.c_str());
 	if (ImGui::Button("select"))
 	{
 		render_world.select_turtle(std::get<2>(selected));
 		selected = std::monostate{};
 	}
+	if (ImGui::Button("delete from world"))
+	{
+		std::scoped_lock a{world.render_mutex};
+		auto turtle_index = std::get<2>(selected);
+		if (render_world.selected_turtle() == turtle_index)
+		{
+			render_world.select_turtle(std::nullopt);
+		}
+		if (!turtle.connection.expired())
+		{
+			auto con = turtle.connection.lock().get();
+			con->send_stop();
+		}
+		selected = std::monostate{};
+		return true;
+	}
+	return false;
 }

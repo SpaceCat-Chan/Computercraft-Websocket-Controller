@@ -340,11 +340,17 @@ int main()
 					// turtle
 					auto selected_turtle = std::get<2>(currently_selected);
 					auto &turtle = world.m_turtles[selected_turtle];
-					draw_selected_ui(
+					bool remove = draw_selected_ui(
 					    turtle,
 					    world,
 					    render_world,
 					    currently_selected);
+					if (remove)
+					{
+						world.m_turtles.erase(
+						    world.m_turtles.begin() + selected_turtle);
+						render_world.dirty();
+					}
 				}
 			}
 			ImGui::End();
