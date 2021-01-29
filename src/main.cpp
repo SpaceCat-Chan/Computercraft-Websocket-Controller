@@ -150,76 +150,19 @@ int main()
 				{
 					if (!in_freecam)
 					{
-						glm::dvec3 up = glm::dvec3{0, 3, 0};
-						glm::dvec3 camera_position
-						    = render_world.camera.GetPosition();
-						glm::dvec3 camera_looking_at
-						    = render_world.camera.GetViewVector();
-						camera_position
-						    = glm::translate(
-						          glm::rotate(
-						              glm::translate(
-						                  glm::dmat4{1},
-						                  camera_looking_at),
-						              static_cast<double>(event.motion.xrel)
-						                  * -x_sensitivity,
-						              up),
-						          -camera_looking_at)
-						      * glm::dvec4{camera_position, 1};
-
-						glm::dvec3 to_camera
-						    = camera_position - camera_looking_at;
-						glm::dvec3 pitch_axis = glm::cross(up, to_camera);
-						glm::dvec3 new_camera_position
-						    = glm::translate(
-						          glm::rotate(
-						              glm::translate(
-						                  glm::dmat4{1},
-						                  camera_looking_at),
-						              static_cast<double>(event.motion.yrel)
-						                  * -y_sensitivity,
-						              pitch_axis),
-						          -camera_looking_at)
-						      * glm::dvec4{camera_position, 1};
-						if (std::abs(glm::dot(
-						        glm::normalize(
-						            new_camera_position - camera_looking_at),
-						        glm::normalize(up)))
-						    < glm::cos(glm::radians(1.0)))
-						{
-							camera_position = new_camera_position;
-						}
-						render_world.camera.MoveTo(camera_position);
+						render_world.camera.RotateAround(
+						    static_cast<double>(event.motion.xrel)
+						        * -x_sensitivity,
+						    static_cast<double>(event.motion.yrel)
+						        * -y_sensitivity);
 					}
 					else
 					{
-						auto view_vector = render_world.camera.GetViewVector();
-						view_vector = glm::rotate(
-						                  glm::dmat4{1},
-						                  static_cast<double>(event.motion.xrel)
-						                      * x_sensitivity * -1,
-						                  render_world.camera.GetUpVector())
-						              * glm::dvec4{view_vector, 0};
-						glm::dvec3 final_view_vector
-						    = glm::rotate(
-						          glm::dmat4{1},
-						          static_cast<double>(event.motion.yrel)
-						              * -y_sensitivity,
-						          glm::cross(
-						              render_world.camera.GetViewVector(),
-						              render_world.camera.GetUpVector()))
-						      * glm::dvec4{view_vector, 0};
-						if (glm::abs(glm::dot(
-						        final_view_vector,
-						        render_world.camera.GetUpVector()))
-						    < glm::cos(glm::radians(1.0)))
-						{
-							render_world.camera.LookIn(final_view_vector);
-						}
-						else
-						{
-							render_world.camera.LookIn(view_vector);
-						}
+						render_world.camera.Rotate(
+						    static_cast<double>(event.motion.xrel)
+						        * -x_sensitivity,
+						    static_cast<double>(event.motion.yrel)
+						        * -y_sensitivity);
 					}
 				}
 				break;
@@ -386,14 +329,22 @@ int main()
 					                    [*render_world.selected_dimension()]
 					                    [selected_value.x][selected_value.y]
 					                    [selected_value.z];
-					draw_selected_ui(Block, world, render_world, currently_selected);
+					draw_selected_ui(
+					    Block,
+					    world,
+					    render_world,
+					    currently_selected);
 				}
 				else if (currently_selected.index() == 2)
 				{
 					// turtle
 					auto selected_turtle = std::get<2>(currently_selected);
 					auto &turtle = world.m_turtles[selected_turtle];
-					draw_selected_ui(turtle, world, render_world, currently_selected);
+					draw_selected_ui(
+					    turtle,
+					    world,
+					    render_world,
+					    currently_selected);
 				}
 			}
 			ImGui::End();
