@@ -195,13 +195,10 @@ struct Turtle
 	WorldLocation position;
 	std::string name;
 	std::weak_ptr<ComputerInterface> connection;
-	std::optional<std::future<WorldLocation>> position_update;
-	std::optional<std::future<
-	    std::array<std::pair<std::optional<Block>, WorldLocation>, 3>>>
-	    block_update;
 	std::optional<Pathing> current_pathing;
+	int fuel_level;
 
-	std::future<nlohmann::json> move(Direction direction)
+	void move(Direction direction)
 	{
 		if (!connection.expired())
 		{
@@ -212,104 +209,196 @@ struct Turtle
 			switch (offset)
 			{
 			case 0:
-				return con->execute_buffer(forward_0);
+				con->execute_buffer(forward_0);
 			case 1:
-				return con->execute_buffer(forward_1);
+				con->execute_buffer(forward_1);
 			case 2:
-				return con->execute_buffer(forward_2);
+				con->execute_buffer(forward_2);
 			case 3:
-				return con->execute_buffer(forward_3);
+				con->execute_buffer(forward_3);
+			}
+		}
+	}
+	std::future<nlohmann::json> move_future(Direction direction)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			int offset = (static_cast<int>(direction)
+			              - static_cast<int>(position.direction) + 4)
+			             % 4;
+			switch (offset)
+			{
+			case 0:
+				return con->execute_buffer_future(forward_0);
+			case 1:
+				return con->execute_buffer_future(forward_1);
+			case 2:
+				return con->execute_buffer_future(forward_2);
+			case 3:
+				return con->execute_buffer_future(forward_3);
 			}
 		}
 		std::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
-	std::future<nlohmann::json> move_forwards()
-	{
-		if(!connection.expired())
-		{
-			auto con = connection.lock().get();
-			return con->move("forward");
-		}
-		std::promise<nlohmann::json> a;
-		a.set_value(nlohmann::json::object());
-		return a.get_future();
-	}
-	std::future<nlohmann::json> move_backwards()
-	{
-		if(!connection.expired())
-		{
-			auto con = connection.lock().get();
-			return con->move("back");
-		}
-		std::promise<nlohmann::json> a;
-		a.set_value(nlohmann::json::object());
-		return a.get_future();
-	}
-	std::future<nlohmann::json> move_up()
+	void move_forwards()
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
-			return con->execute_buffer(up);
+			con->move("forward");
 		}
-		std::promise<nlohmann::json> a;
-		a.set_value(nlohmann::json::object());
-		return a.get_future();
 	}
-	std::future<nlohmann::json> move_down()
+	std::future<nlohmann::json> move_forwards_future()
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
-			return con->execute_buffer(down);
+			return con->move_future("forward");
 		}
 		std::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
-	std::future<nlohmann::json> point(Direction direction)
+	void move_backwards()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->move("back");
+		}
+	}
+	std::future<nlohmann::json> move_backwards_future()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->move_future("back");
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	void move_up()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->execute_buffer(up);
+		}
+	}
+	std::future<nlohmann::json> move_up_future()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->execute_buffer_future(up);
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	void move_down()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->execute_buffer(down);
+		}
+	}
+	std::future<nlohmann::json> move_down_future()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->execute_buffer_future(down);
+		}
+		std::promise<nlohmann::json> a;
+		a.set_value(nlohmann::json::object());
+		return a.get_future();
+	}
+	void point(Direction direction)
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
 			int offset = ((static_cast<int>(direction)
-			              - static_cast<int>(position.direction)) + 4)
+			               - static_cast<int>(position.direction))
+			              + 4)
 			             % 4;
 			switch (offset)
 			{
 			case 0:
 				break;
 			case 1:
-				return con->execute_buffer(rotate_1);
+				con->execute_buffer(rotate_1);
 			case 2:
-				return con->execute_buffer(rotate_2);
+				con->execute_buffer(rotate_2);
 			case 3:
-				return con->execute_buffer(rotate_3);
+				con->execute_buffer(rotate_3);
+			}
+		}
+	}
+	std::future<nlohmann::json> point_future(Direction direction)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			int offset = ((static_cast<int>(direction)
+			               - static_cast<int>(position.direction))
+			              + 4)
+			             % 4;
+			switch (offset)
+			{
+			case 0:
+				break;
+			case 1:
+				return con->execute_buffer_future(rotate_1);
+			case 2:
+				return con->execute_buffer_future(rotate_2);
+			case 3:
+				return con->execute_buffer_future(rotate_3);
 			}
 		}
 		std::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
-	std::future<nlohmann::json> rotate_right()
+	void rotate_right()
 	{
-		if(!connection.expired())
+		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
-			return con->rotate("right");
+			con->rotate("right");
+		}
+	}
+	std::future<nlohmann::json> rotate_right_future()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->rotate_future("right");
 		}
 		std::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
-	std::future<nlohmann::json> rotate_left()
+	void rotate_left()
 	{
-		if(!connection.expired())
+		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
-			return con->rotate("left");
+			con->rotate("left");
+		}
+	}
+	std::future<nlohmann::json> rotate_left_future()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->rotate_future("left");
 		}
 		std::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
@@ -424,93 +513,9 @@ class World
 	public:
 	World()
 	{
-		surrounding_blocks_buffer.eval(R"(
-			return position.get()
-		)");
-		surrounding_blocks_buffer.eval(R"(
-			return turtle.inspect()
-		)");
-		surrounding_blocks_buffer.eval(R"(
-			return turtle.inspectUp()
-		)");
-		surrounding_blocks_buffer.eval(R"(
-			return turtle.inspectDown()
-		)");
-		surrounding_blocks_buffer.SupplyOutputParser([](nlohmann::json result) {
-			WorldLocation turtle;
-			turtle.position.x = result.at(0).at("returns").at(1).get<int>();
-			turtle.position.y = result.at(0).at("returns").at(2).get<int>();
-			turtle.position.z = result.at(0).at("returns").at(3).get<int>();
-			turtle.direction
-			    = Direction{result.at(0).at("returns").at(4).get<int>()};
-			turtle.dimension
-			    = result.at(0).at("returns").at(5).get<std::string>();
-			turtle.server = result.at(0).at("returns").at(6).get<std::string>();
-
-			std::array<std::pair<std::optional<Block>, WorldLocation>, 3>
-			    blocks;
-			for (size_t i = 0; i < 3; i++)
-			{
-				glm::ivec3 block_direction;
-				switch (i)
-				{
-				case 0:
-					block_direction
-					    = direction_to_orientation(turtle.direction);
-					break;
-				case 1:
-					block_direction = {0, 1, 0};
-					break;
-				case 2:
-					block_direction = {0, -1, 0};
-					break;
-				}
-				blocks[i].second.position = turtle.position + block_direction;
-				blocks[i].second.dimension = turtle.dimension;
-				blocks[i].second.server = turtle.server;
-
-				if (result.at(i + 1).at("returns").at(1) == true)
-				{
-					blocks[i].first = Block{};
-					blocks[i].first->name = result.at(i + 1)
-					                            .at("returns")
-					                            .at(2)
-					                            .at("name")
-					                            .get<std::string>();
-
-					std::hash<std::string> hasher;
-					auto name_hash = hasher(blocks[i].first->name);
-					glm::vec4 color;
-					color.r = (name_hash & 0xff) / 256.0;
-					color.g = ((name_hash >> 8) & 0xff) / 256.0;
-					color.b = ((name_hash >> 16) & 0xff) / 256.0;
-
-					blocks[i].first->color = color;
-
-					blocks[i].first->metadata = result.at(i + 1)
-					                                .at("returns")
-					                                .at(2)
-					                                .at("metadata")
-					                                .get<int>();
-					blocks[i].first->blockstate
-					    = result.at(i + 1).at("returns").at(2).at("state");
-					blocks[i].first->position.position
-					    = blocks[i].second.position;
-					blocks[i].first->position.dimension
-					    = blocks[i].second.dimension;
-					blocks[i].first->position.server = blocks[i].second.server;
-				}
-			}
-
-			return blocks;
-		});
-
-		position_buffer.eval(R"(
-			return position.get()
-		)");
 		auto position_parse = [](nlohmann::json result) {
+			auto returns = result.at("returns");
 			WorldLocation parsed;
-			auto returns = result.at(0).at("returns");
 			parsed.position.x = returns.at(1).get<int>();
 			parsed.position.y = returns.at(2).get<int>();
 			parsed.position.z = returns.at(3).get<int>();
@@ -519,12 +524,18 @@ class World
 			parsed.server = returns.at(6).get<std::string>();
 			return parsed;
 		};
-		position_buffer.SupplyOutputParser(position_parse);
-
-		position_and_name.buffer(position_buffer);
+		position_and_name.eval(R"(
+			return position.get()
+		)");
 		position_and_name.eval(R"(return os.getComputerLabel())");
 		position_and_name.SupplyOutputParser(
-		    [position_parse](nlohmann::json result) {
+		    [position_parse](nlohmann::json result)
+		        -> std::optional<
+		            std::pair<WorldLocation, std::optional<nlohmann::json>>> {
+			    if (result.contains("error"))
+			    {
+				    return std::nullopt;
+			    }
 			    auto position = position_parse(result.at(0));
 			    if (result.at(1).at("returns").size() == 2)
 			    {
@@ -633,36 +644,7 @@ class World
 		std::scoped_lock<std::mutex> a{render_mutex};
 		for (auto &turtle : m_turtles)
 		{
-			bool updated_data = false;
-			if (turtle.block_update.has_value() && turtle.block_update->valid())
-			{
-				updated_data = true;
-				auto blocks = turtle.block_update->get();
-				for (auto &block : blocks)
-				{
-					update_block(block);
-				}
-				turtle.block_update = std::nullopt;
-			}
-			if (turtle.position_update.has_value()
-			    && turtle.position_update->valid())
-			{
-				updated_data = true;
-				auto data = turtle.position_update->get();
-				turtle.position.position = data.position;
-				turtle.position.direction = data.direction;
-				turtle.position.server
-				    = data.server; // technically shouldn't need to copy server
-				                   // and dimension stuff here since it should
-				                   // stay the same, but it can't hurt to be
-				                   // safe
-				turtle.position.dimension = data.dimension;
-				turtle.position_update = std::nullopt;
-			}
-			if (updated_data && dirty_renderer)
-			{
-				dirty_renderer();
-			}
+			// fuel and inventory stuff goes here
 		}
 	}
 
@@ -671,21 +653,14 @@ class World
 		std::scoped_lock a{render_mutex};
 		for (auto &turtle : m_turtles)
 		{
+			// TODO: add a timer so turtles aren't spammed, maybe make a timer
+			// per data point
 			if (!turtle.connection.expired())
 			{
 				auto turtle_connection
 				    = static_cast<std::shared_ptr<ComputerInterface>>(
 				        turtle.connection);
-				if (turtle.block_update == std::nullopt)
-				{
-					turtle.block_update = turtle_connection->execute_buffer(
-					    surrounding_blocks_buffer);
-				}
-				if (turtle.position_update == std::nullopt)
-				{
-					turtle.position_update
-					    = turtle_connection->execute_buffer(position_buffer);
-				}
+				// fuel and inventory things would go here
 			}
 		}
 	}
@@ -693,10 +668,6 @@ class World
 	void new_turtle(std::shared_ptr<ComputerInterface> turtle)
 	{
 		std::scoped_lock a{render_mutex};
-		sleep(1);
-		m_turtles_in_progress.push_back(
-		    {turtle, turtle->execute_buffer(position_and_name)});
-		turtle->auth_message("welcome");
 		turtle->set_unexpected_message_handler(
 		    std::bind(
 		        &World::update_block_from_JSON,
@@ -711,6 +682,9 @@ class World
 		        std::placeholders::_1,
 		        std::placeholders::_2),
 		    -2);
+		m_turtles_in_progress.push_back(
+		    {turtle, turtle->execute_buffer_future(position_and_name)});
+		turtle->auth_message("welcome");
 		std::cout << "new turtle\n";
 	}
 
@@ -725,7 +699,14 @@ class World
 			if (turtle.second.wait_for(std::chrono::seconds{0})
 			    == std::future_status::ready)
 			{
-				auto position_and_name = turtle.second.get();
+				auto position_and_name_opt = turtle.second.get();
+				if (!position_and_name_opt.has_value())
+				{
+					m_turtles_in_progress.erase(
+					    m_turtles_in_progress.begin() + i - 1);
+					continue;
+				}
+				auto position_and_name = *position_and_name_opt;
 				auto position = position_and_name.first;
 				auto info = position_and_name.second;
 				std::string label;
@@ -867,16 +848,17 @@ class World
 		          << "\ndelta: " << glm::to_string(move_diff) << '\n';
 		if (move_diff == glm::ivec3{0, 1, 0})
 		{
-			turtle.current_pathing->pending_movement = turtle.move_up();
+			turtle.current_pathing->pending_movement = turtle.move_up_future();
 		}
 		else if (move_diff == glm::ivec3{0, -1, 0})
 		{
-			turtle.current_pathing->pending_movement = turtle.move_down();
+			turtle.current_pathing->pending_movement
+			    = turtle.move_down_future();
 		}
 		else
 		{
 			turtle.current_pathing->pending_movement
-			    = turtle.move(orientation_to_direction(move_diff));
+			    = turtle.move_future(orientation_to_direction(move_diff));
 		}
 		mi++;
 	}
@@ -933,10 +915,8 @@ class World
 
 	std::mutex render_mutex;
 
-	CommandBuffer<std::array<std::pair<std::optional<Block>, WorldLocation>, 3>>
-	    surrounding_blocks_buffer;
-	CommandBuffer<WorldLocation> position_buffer;
-	CommandBuffer<std::pair<WorldLocation, std::optional<nlohmann::json>>>
+	CommandBuffer<
+	    std::optional<std::pair<WorldLocation, std::optional<nlohmann::json>>>>
 	    position_and_name;
 	std::unordered_map<
 	    std::string,
@@ -950,7 +930,8 @@ class World
 	std::vector<Turtle> m_turtles;
 	std::vector<std::pair<
 	    std::shared_ptr<ComputerInterface>,
-	    std::future<std::pair<WorldLocation, std::optional<nlohmann::json>>>>>
+	    std::future<std::optional<
+	        std::pair<WorldLocation, std::optional<nlohmann::json>>>>>>
 	    m_turtles_in_progress;
 
 	std::function<void(void)> dirty_renderer;

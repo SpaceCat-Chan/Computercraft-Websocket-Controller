@@ -41,66 +41,18 @@ class ComputerInterface
 	    : m_connection(connection), m_endpoint(endpoint)
 	{
 	}
-
-	std::future<nlohmann::json> auth_message(std::string auth)
+	~ComputerInterface()
 	{
-		auto request = make_auth(auth);
-		auto request_id = add_request_id(request);
 		std::scoped_lock a{request_mutex};
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
-		return std::get<2>(m_request_queue.back())->get_future();
-	}
-
-	std::future<nlohmann::json> remote_eval(std::string to_eval)
-	{
-		auto request = make_eval(to_eval);
-		auto request_id = add_request_id(request);
-		std::scoped_lock a{request_mutex};
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
-		return std::get<2>(m_request_queue.back())->get_future();
-	}
-
-	template <typename T>
-	std::future<T> execute_buffer(CommandBuffer<T> &buffer);
-
-	std::future<nlohmann::json> inspect(std::string direction)
-	{
-		auto request = make_inspect(direction);
-		auto request_id = add_request_id(request);
-		std::scoped_lock a{request_mutex};
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
-		return std::get<2>(m_request_queue.back())->get_future();
-	}
-	std::future<nlohmann::json> rotate(std::string direction)
-	{
-		auto request = make_rotate(direction);
-		auto request_id = add_request_id(request);
-		std::scoped_lock a{request_mutex};
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
-		return std::get<2>(m_request_queue.back())->get_future();
-	}
-	std::future<nlohmann::json> move(std::string direction)
-	{
-		auto request = make_move(direction);
-		auto request_id = add_request_id(request);
-		std::scoped_lock a{request_mutex};
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
-		return std::get<2>(m_request_queue.back())->get_future();
+		for(auto &expected_response : m_request_queue)
+		{
+			auto promise = std::get<2>(expected_response);
+			promise->set_value(R"(
+				{
+					"error": "interface deconstructed"
+				}
+			)"_json);
+		}
 	}
 
 	void send_stop()
@@ -115,7 +67,9 @@ class ComputerInterface
 		}
 	}
 
-	void close(const websocketpp::close::status::value status, const std::string &why)
+	void close(
+	    const websocketpp::close::status::value status,
+	    const std::string &why)
 	{
 		m_endpoint.close(m_connection, status, why);
 	}
@@ -171,7 +125,127 @@ class ComputerInterface
 		m_time_since_last_request += dt;
 	}
 
+	void auth_message(std::string auth)
+	{
+		std::scoped_lock a{request_mutex};
+		auth_message_impl(auth);
+	}
+	std::future<nlohmann::json> auth_message_future(std::string auth)
+	{
+		std::scoped_lock a{request_mutex};
+		auth_message_impl(auth);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	void remote_eval(std::string to_eval)
+	{
+		std::scoped_lock a{request_mutex};
+		remote_eval_impl(to_eval);
+	}
+	std::future<nlohmann::json> remote_eval_future(std::string to_eval)
+	{
+		std::scoped_lock a{request_mutex};
+		remote_eval_impl(to_eval);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	template <typename T>
+	void execute_buffer(CommandBuffer<T> &buffer)
+	{
+		std::scoped_lock a{request_mutex};
+		execute_buffer_impl<T>(buffer);
+	}
+	template <typename T>
+	std::future<T> execute_buffer_future(CommandBuffer<T> &buffer)
+	{
+		std::scoped_lock a{request_mutex};
+		execute_buffer_impl<T>(buffer);
+		return buffer.m_parse(
+		    std::get<2>(m_request_queue.back())->get_future());
+	}
+	void inspect(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		inspect_impl(direction);
+	}
+	std::future<nlohmann::json> inspect_future(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		inspect_impl(direction);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	void rotate(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		rotate_impl(direction);
+	}
+	std::future<nlohmann::json> rotate_future(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		rotate_impl(direction);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	void move(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		move_impl(direction);
+	}
+	std::future<nlohmann::json> move_future(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		move_impl(direction);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+
 	private:
+	void auth_message_impl(std::string auth)
+	{
+		auto request = make_auth(auth);
+		auto request_id = add_request_id(request);
+		m_request_queue.emplace_back(
+		    request_id,
+		    request,
+		    std::make_shared<std::promise<nlohmann::json>>());
+	}
+
+	void remote_eval_impl(std::string to_eval)
+	{
+		auto request = make_eval(to_eval);
+		auto request_id = add_request_id(request);
+		m_request_queue.emplace_back(
+		    request_id,
+		    request,
+		    std::make_shared<std::promise<nlohmann::json>>());
+	}
+
+	template <typename T>
+	void execute_buffer_impl(CommandBuffer<T> &buffer);
+
+	void inspect_impl(std::string direction)
+	{
+		auto request = make_inspect(direction);
+		auto request_id = add_request_id(request);
+		m_request_queue.emplace_back(
+		    request_id,
+		    request,
+		    std::make_shared<std::promise<nlohmann::json>>());
+	}
+	void rotate_impl(std::string direction)
+	{
+		auto request = make_rotate(direction);
+		auto request_id = add_request_id(request);
+		m_request_queue.emplace_back(
+		    request_id,
+		    request,
+		    std::make_shared<std::promise<nlohmann::json>>());
+	}
+	void move_impl(std::string direction)
+	{
+		auto request = make_move(direction);
+		auto request_id = add_request_id(request);
+		m_request_queue.emplace_back(
+		    request_id,
+		    request,
+		    std::make_shared<std::promise<nlohmann::json>>());
+	}
 	static nlohmann::json make_auth(std::string auth)
 	{
 		auto request = R"(
@@ -369,14 +443,12 @@ ComputerInterface::make_command_buffer_json(CommandBuffer<T> &buffer)
 }
 
 template <typename T>
-std::future<T> ComputerInterface::execute_buffer(CommandBuffer<T> &buffer)
+void ComputerInterface::execute_buffer_impl(CommandBuffer<T> &buffer)
 {
 	auto request = make_command_buffer_json(buffer);
 	auto request_id = add_request_id(request);
-	std::scoped_lock a{request_mutex};
 	m_request_queue.emplace_back(
 	    request_id,
 	    request,
 	    std::make_shared<std::promise<nlohmann::json>>());
-	return buffer.m_parse(std::get<2>(m_request_queue.back())->get_future());
 }

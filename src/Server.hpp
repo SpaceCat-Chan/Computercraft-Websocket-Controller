@@ -73,7 +73,11 @@ class server_manager
 		}
 	}
 
-	void stop() { m_endpoint.stop(); }
+	void stop()
+	{
+		m_endpoint.stop();
+		m_computers.clear();
+	}
 
 	void register_new_handler(
 	    std::function<void(std::shared_ptr<ComputerInterface>)> new_handler)
@@ -89,6 +93,7 @@ class server_manager
 	    m_computers;
 
 	server m_endpoint;
+
 	private:
 	void echo_handler(
 	    websocketpp::connection_hdl connection,
