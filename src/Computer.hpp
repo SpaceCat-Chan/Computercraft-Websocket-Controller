@@ -10,7 +10,6 @@
 
 #include "nlohmann/json.hpp"
 
-
 template <>
 struct std::hash<websocketpp::connection_hdl>
 {
@@ -80,25 +79,35 @@ class ComputerInterface
 	{
 		auto json_response = nlohmann::json::parse(message->get_payload());
 		std::cout << message->get_payload() << '\n';
-		auto response_id = json_response.at("request_id").get<int32_t>();
-		if (m_requests.find(response_id) == m_requests.end())
+		if (json_response.contains("special"))
 		{
-			if (m_unexpected_message_handler[response_id])
+			if(json_response.at("special") == 1)
 			{
-				m_unexpected_message_handler[response_id](
-				    *this,
-				    json_response["response"]);
+				ready_to_send = true;
 			}
-			else
-			{
-				std::cout << "recieved unexpected message from computer "
-				          << hash(m_connection)
-				          << " with no registered handler\n";
-			}
-			return;
 		}
-		m_requests.at(response_id)->set_value(json_response["response"]);
-		m_requests.erase(response_id);
+		else
+		{
+			auto response_id = json_response.at("request_id").get<int32_t>();
+			if (m_requests.find(response_id) == m_requests.end())
+			{
+				if (m_unexpected_message_handler[response_id])
+				{
+					m_unexpected_message_handler[response_id](
+					    *this,
+					    json_response["response"]);
+				}
+				else
+				{
+					std::cout << "recieved unexpected message from computer "
+					          << hash(m_connection)
+					          << " with no registered handler\n";
+				}
+				return;
+			}
+			m_requests.at(response_id)->set_value(json_response["response"]);
+			m_requests.erase(response_id);
+		}
 	}
 
 	void set_unexpected_message_handler(
@@ -112,7 +121,7 @@ class ComputerInterface
 	{
 		std::scoped_lock a{request_mutex};
 		constexpr std::chrono::duration<double> threshold{0.1};
-		if (!m_request_queue.empty() && m_time_since_last_request > threshold)
+		if (!m_request_queue.empty() && m_time_since_last_request > threshold && ready_to_send)
 		{
 			m_endpoint.send(
 			    m_connection,
@@ -123,6 +132,7 @@ class ComputerInterface
 			    std::get<2>(m_request_queue.front()));
 			m_request_queue.pop_front();
 			m_time_since_last_request = std::chrono::duration<double>{0};
+			ready_to_send = false;
 		}
 		m_time_since_last_request += dt;
 	}
@@ -479,6 +489,7 @@ class ComputerInterface
 
 	std::chrono::duration<double> m_time_since_last_request{1e100};
 	std::mutex request_mutex;
+	std::atomic<bool> ready_to_send = false;
 
 	template <typename T>
 	friend class CommandBuffer;
@@ -585,10 +596,8 @@ class CommandBuffer
 	private:
 	boost::future<T> m_parse(boost::future<nlohmann::json> &&future)
 	{
-		return future.then([this](auto future)
-		{
-			return m_output_parser(future.get());
-		});
+		return future.then(
+		    [this](auto future) { return m_output_parser(future.get()); });
 	}
 	void CheckShutdown()
 	{
