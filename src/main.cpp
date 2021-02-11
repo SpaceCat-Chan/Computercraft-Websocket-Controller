@@ -284,6 +284,8 @@ int main()
 
 		world.add_new_turtles();
 		world.update_pathings();
+		world.update_data_gets();
+		world.get_data_from_turtles();
 		render_world.copy_into_buffers(world, in_freecam);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 		render_world.render();

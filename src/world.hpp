@@ -583,7 +583,7 @@ class World
 		inventory_get_buffer.SupplyOutputParser(
 		    [](nlohmann::json result) -> decltype(Turtle::inventory) {
 			    decltype(Turtle::inventory) inventory;
-			    auto items = result.at("returns").at(0);
+			    auto items = result.at(0);
 			    for (size_t i = 1; i < 16; i++)
 			    {
 				    if (items[i].is_null())
@@ -594,7 +594,7 @@ class World
 				    {
 					    inventory[i] = Item{};
 					    inventory[i]->name = items[i].at("name");
-					    inventory[i]->amount = items[i].at("amount");
+					    inventory[i]->amount = items[i].at("count");
 					    inventory[i]->damage = items[i].at("damage");
 				    }
 			    }
