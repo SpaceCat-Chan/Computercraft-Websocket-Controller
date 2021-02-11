@@ -5,9 +5,11 @@
 #include <string>
 #include <unordered_map>
 
+#include "serialize_std_optional.hpp"
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/serialization/access.hpp>
+#include <boost/serialization/array.hpp>
 #include <boost/serialization/unordered_map.hpp>
 #include <boost/serialization/vector.hpp>
 #include <glm/ext.hpp>
@@ -21,6 +23,7 @@
 #include "Server.hpp"
 
 using namespace std::literals;
+using namespace std::literals::chrono_literals;
 
 enum Direction : int
 {
@@ -169,6 +172,23 @@ void serialize(Archive &ar, glm::ivec3 &vec, const unsigned int version)
 } // namespace serialization
 } // namespace boost
 
+struct Item
+{
+	std::string name;
+	int amount;
+	int damage; // damage = max_durability - current_durability
+
+	private:
+	friend class boost::serialization::access;
+	template <typename Archive>
+	void serialize(Archive &ar, unsigned int version)
+	{
+		ar &name;
+		ar &amount;
+		ar &damage;
+	}
+};
+
 struct Turtle;
 class World;
 
@@ -180,12 +200,12 @@ struct Pathing
 	    Turtle &turtle,
 	    std::function<bool(glm::ivec3)> obstacle);
 	std::unique_ptr<AStar> pather;
-	std::future<bool> result;
+	boost::future<bool> result;
 	glm::ivec3 target;
 	std::vector<glm::ivec3> latest_results;
 	int movement_index
 	    = 0; // lates movement in latest_results that has been done
-	std::optional<std::future<nlohmann::json>> pending_movement;
+	std::optional<boost::future<nlohmann::json>> pending_movement;
 	bool finished = false;
 	bool unable_to_path = false;
 };
@@ -197,6 +217,10 @@ struct Turtle
 	std::weak_ptr<ComputerInterface> connection;
 	std::optional<Pathing> current_pathing;
 	int fuel_level;
+	std::array<std::optional<Item>, 16> inventory;
+	std::chrono::steady_clock::time_point last_inventory_get
+	    = std::chrono::steady_clock::now() - 24h;
+	std::optional<boost::future<decltype(inventory)>> current_inventory_get;
 
 	void move(Direction direction)
 	{
@@ -219,7 +243,7 @@ struct Turtle
 			}
 		}
 	}
-	std::future<nlohmann::json> move_future(Direction direction)
+	boost::future<nlohmann::json> move_future(Direction direction)
 	{
 		if (!connection.expired())
 		{
@@ -239,7 +263,7 @@ struct Turtle
 				return con->execute_buffer_future(forward_3);
 			}
 		}
-		std::promise<nlohmann::json> a;
+		boost::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
@@ -251,14 +275,14 @@ struct Turtle
 			con->move("forward");
 		}
 	}
-	std::future<nlohmann::json> move_forwards_future()
+	boost::future<nlohmann::json> move_forwards_future()
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
 			return con->move_future("forward");
 		}
-		std::promise<nlohmann::json> a;
+		boost::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
@@ -270,14 +294,14 @@ struct Turtle
 			con->move("back");
 		}
 	}
-	std::future<nlohmann::json> move_backwards_future()
+	boost::future<nlohmann::json> move_backwards_future()
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
 			return con->move_future("back");
 		}
-		std::promise<nlohmann::json> a;
+		boost::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
@@ -289,14 +313,14 @@ struct Turtle
 			con->execute_buffer(up);
 		}
 	}
-	std::future<nlohmann::json> move_up_future()
+	boost::future<nlohmann::json> move_up_future()
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
 			return con->execute_buffer_future(up);
 		}
-		std::promise<nlohmann::json> a;
+		boost::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
@@ -308,14 +332,14 @@ struct Turtle
 			con->execute_buffer(down);
 		}
 	}
-	std::future<nlohmann::json> move_down_future()
+	boost::future<nlohmann::json> move_down_future()
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
 			return con->execute_buffer_future(down);
 		}
-		std::promise<nlohmann::json> a;
+		boost::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
@@ -341,7 +365,7 @@ struct Turtle
 			}
 		}
 	}
-	std::future<nlohmann::json> point_future(Direction direction)
+	boost::future<nlohmann::json> point_future(Direction direction)
 	{
 		if (!connection.expired())
 		{
@@ -362,7 +386,7 @@ struct Turtle
 				return con->execute_buffer_future(rotate_3);
 			}
 		}
-		std::promise<nlohmann::json> a;
+		boost::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
@@ -374,14 +398,14 @@ struct Turtle
 			con->rotate("right");
 		}
 	}
-	std::future<nlohmann::json> rotate_right_future()
+	boost::future<nlohmann::json> rotate_right_future()
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
 			return con->rotate_future("right");
 		}
-		std::promise<nlohmann::json> a;
+		boost::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
@@ -393,14 +417,14 @@ struct Turtle
 			con->rotate("left");
 		}
 	}
-	std::future<nlohmann::json> rotate_left_future()
+	boost::future<nlohmann::json> rotate_left_future()
 	{
 		if (!connection.expired())
 		{
 			auto con = connection.lock().get();
 			return con->rotate_future("left");
 		}
-		std::promise<nlohmann::json> a;
+		boost::promise<nlohmann::json> a;
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
@@ -461,8 +485,14 @@ struct Turtle
 	{
 		ar &position;
 		ar &name;
+		if (version >= 1)
+		{
+			ar &inventory;
+		}
 	}
 };
+
+BOOST_CLASS_VERSION(Turtle, 1)
 
 template <typename T, typename... U>
 const T &first_in_pack(const T &first, const U &... others)
@@ -547,6 +577,28 @@ class World
 			    {
 				    return std::pair{position, std::optional<nlohmann::json>{}};
 			    }
+		    });
+
+		inventory_get_buffer.inventory();
+		inventory_get_buffer.SupplyOutputParser(
+		    [](nlohmann::json result) -> decltype(Turtle::inventory) {
+			    decltype(Turtle::inventory) inventory;
+			    auto items = result.at("returns").at(0);
+			    for (size_t i = 1; i < 16; i++)
+			    {
+				    if (items[i].is_null())
+				    {
+					    inventory[i] = std::nullopt;
+				    }
+				    else
+				    {
+					    inventory[i] = Item{};
+					    inventory[i]->name = items[i].at("name");
+					    inventory[i]->amount = items[i].at("amount");
+					    inventory[i]->damage = items[i].at("damage");
+				    }
+			    }
+			    return inventory;
 		    });
 	}
 
@@ -644,7 +696,12 @@ class World
 		std::scoped_lock<std::mutex> a{render_mutex};
 		for (auto &turtle : m_turtles)
 		{
-			// fuel and inventory stuff goes here
+			if (turtle.current_inventory_get
+			    && turtle.current_inventory_get->is_ready())
+			{
+				turtle.inventory = turtle.current_inventory_get->get();
+				turtle.current_inventory_get = std::nullopt;
+			}
 		}
 	}
 
@@ -660,7 +717,18 @@ class World
 				auto turtle_connection
 				    = static_cast<std::shared_ptr<ComputerInterface>>(
 				        turtle.connection);
-				// fuel and inventory things would go here
+
+				if (turtle.current_inventory_get == std::nullopt
+				    && std::chrono::steady_clock::now()
+				               - turtle.last_inventory_get
+				           > 5s)
+				{
+					turtle.current_inventory_get
+					    = turtle_connection->execute_buffer_future(
+					        inventory_get_buffer);
+					turtle.last_inventory_get
+					    = std::chrono::steady_clock::now();
+				}
 			}
 		}
 	}
@@ -696,8 +764,7 @@ class World
 		{
 			auto &turtle = m_turtles_in_progress[i - 1];
 			turtles_added = true;
-			if (turtle.second.wait_for(std::chrono::seconds{0})
-			    == std::future_status::ready)
+			if (turtle.second.is_ready())
 			{
 				auto position_and_name_opt = turtle.second.get();
 				if (!position_and_name_opt.has_value())
@@ -769,8 +836,7 @@ class World
 			{
 				if (turtle.current_pathing->pending_movement)
 				{
-					if (turtle.current_pathing->pending_movement->wait_for(0s)
-					    == std::future_status::ready)
+					if (turtle.current_pathing->pending_movement->is_ready())
 					{
 						if (turtle_requires_repath(turtle))
 						{
@@ -779,7 +845,7 @@ class World
 							        turtle.position.position,
 							        turtle.current_pathing->target,
 							        make_turtle_obstacle_function(turtle));
-							turtle.current_pathing->result = std::async(
+							turtle.current_pathing->result = boost::async(
 							    &AStar::run,
 							    turtle.current_pathing->pather.get());
 							turtle.current_pathing->pending_movement
@@ -804,8 +870,7 @@ class World
 				}
 				else
 				{
-					if (turtle.current_pathing->result.wait_for(0s)
-					    == std::future_status::ready)
+					if (turtle.current_pathing->result.is_ready())
 					{
 						auto result = turtle.current_pathing->result.get();
 						if (result)
@@ -918,6 +983,7 @@ class World
 	CommandBuffer<
 	    std::optional<std::pair<WorldLocation, std::optional<nlohmann::json>>>>
 	    position_and_name;
+	CommandBuffer<decltype(Turtle::inventory)> inventory_get_buffer;
 	std::unordered_map<
 	    std::string,
 	    std::unordered_map<
@@ -930,7 +996,7 @@ class World
 	std::vector<Turtle> m_turtles;
 	std::vector<std::pair<
 	    std::shared_ptr<ComputerInterface>,
-	    std::future<std::optional<
+	    boost::future<std::optional<
 	        std::pair<WorldLocation, std::optional<nlohmann::json>>>>>>
 	    m_turtles_in_progress;
 

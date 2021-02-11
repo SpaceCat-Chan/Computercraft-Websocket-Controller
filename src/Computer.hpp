@@ -3,11 +3,13 @@
 #include <chrono>
 #include <deque>
 #include <functional>
-#include <future>
+
+#include <boost/thread/future.hpp>
 
 #include "Common_Networking.hpp"
 
 #include "nlohmann/json.hpp"
+
 
 template <>
 struct std::hash<websocketpp::connection_hdl>
@@ -44,7 +46,7 @@ class ComputerInterface
 	~ComputerInterface()
 	{
 		std::scoped_lock a{request_mutex};
-		for(auto &expected_response : m_request_queue)
+		for (auto &expected_response : m_request_queue)
 		{
 			auto promise = std::get<2>(expected_response);
 			promise->set_value(R"(
@@ -130,7 +132,7 @@ class ComputerInterface
 		std::scoped_lock a{request_mutex};
 		auth_message_impl(auth);
 	}
-	std::future<nlohmann::json> auth_message_future(std::string auth)
+	boost::future<nlohmann::json> auth_message_future(std::string auth)
 	{
 		std::scoped_lock a{request_mutex};
 		auth_message_impl(auth);
@@ -141,7 +143,7 @@ class ComputerInterface
 		std::scoped_lock a{request_mutex};
 		remote_eval_impl(to_eval);
 	}
-	std::future<nlohmann::json> remote_eval_future(std::string to_eval)
+	boost::future<nlohmann::json> remote_eval_future(std::string to_eval)
 	{
 		std::scoped_lock a{request_mutex};
 		remote_eval_impl(to_eval);
@@ -154,7 +156,7 @@ class ComputerInterface
 		execute_buffer_impl<T>(buffer);
 	}
 	template <typename T>
-	std::future<T> execute_buffer_future(CommandBuffer<T> &buffer)
+	boost::future<T> execute_buffer_future(CommandBuffer<T> &buffer)
 	{
 		std::scoped_lock a{request_mutex};
 		execute_buffer_impl<T>(buffer);
@@ -166,7 +168,7 @@ class ComputerInterface
 		std::scoped_lock a{request_mutex};
 		inspect_impl(direction);
 	}
-	std::future<nlohmann::json> inspect_future(std::string direction)
+	boost::future<nlohmann::json> inspect_future(std::string direction)
 	{
 		std::scoped_lock a{request_mutex};
 		inspect_impl(direction);
@@ -177,7 +179,7 @@ class ComputerInterface
 		std::scoped_lock a{request_mutex};
 		rotate_impl(direction);
 	}
-	std::future<nlohmann::json> rotate_future(std::string direction)
+	boost::future<nlohmann::json> rotate_future(std::string direction)
 	{
 		std::scoped_lock a{request_mutex};
 		rotate_impl(direction);
@@ -188,10 +190,64 @@ class ComputerInterface
 		std::scoped_lock a{request_mutex};
 		move_impl(direction);
 	}
-	std::future<nlohmann::json> move_future(std::string direction)
+	boost::future<nlohmann::json> move_future(std::string direction)
 	{
 		std::scoped_lock a{request_mutex};
 		move_impl(direction);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	auto inventory(bool detailed = true)
+	{
+		std::scoped_lock a{request_mutex};
+		inventory_impl(detailed);
+	}
+	auto inventory_future(bool detailed = true)
+	{
+		std::scoped_lock a{request_mutex};
+		inventory_impl(detailed);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	auto inventory_slot(int slot, bool detailed = true)
+	{
+		std::scoped_lock a{request_mutex};
+		inventory_slot_impl(slot, detailed);
+	}
+	auto inventory_slot_future(int slot, bool detailed = true)
+	{
+		std::scoped_lock a{request_mutex};
+		inventory_slot_impl(slot, detailed);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	auto
+	inventory_move(int from, int to, std::optional<int> amount = std::nullopt)
+	{
+		std::scoped_lock a{request_mutex};
+		inventory_move_impl(from, to, amount);
+	}
+	auto inventory_move_future(
+	    int from,
+	    int to,
+	    std::optional<int> amount = std::nullopt)
+	{
+		std::scoped_lock a{request_mutex};
+		inventory_move_impl(from, to, amount);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	auto drop_item(
+	    int slot,
+	    std::string direction,
+	    std::optional<int> amount = std::nullopt)
+	{
+		std::scoped_lock a{request_mutex};
+		drop_item_impl(slot, direction, amount);
+	}
+	auto drop_item_future(
+	    int slot,
+	    std::string direction,
+	    std::optional<int> amount = std::nullopt)
+	{
+		std::scoped_lock a{request_mutex};
+		drop_item_impl(slot, direction, amount);
 		return std::get<2>(m_request_queue.back())->get_future();
 	}
 
@@ -199,21 +255,13 @@ class ComputerInterface
 	void auth_message_impl(std::string auth)
 	{
 		auto request = make_auth(auth);
-		auto request_id = add_request_id(request);
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
+		submit_request(request);
 	}
 
 	void remote_eval_impl(std::string to_eval)
 	{
 		auto request = make_eval(to_eval);
-		auto request_id = add_request_id(request);
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
+		submit_request(request);
 	}
 
 	template <typename T>
@@ -222,30 +270,54 @@ class ComputerInterface
 	void inspect_impl(std::string direction)
 	{
 		auto request = make_inspect(direction);
-		auto request_id = add_request_id(request);
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
+		submit_request(request);
 	}
 	void rotate_impl(std::string direction)
 	{
 		auto request = make_rotate(direction);
-		auto request_id = add_request_id(request);
-		m_request_queue.emplace_back(
-		    request_id,
-		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
+		submit_request(request);
 	}
 	void move_impl(std::string direction)
 	{
 		auto request = make_move(direction);
+		submit_request(request);
+	}
+	void inventory_impl(bool detailed = true)
+	{
+		auto request = make_inventory(detailed);
+		submit_request(request);
+	}
+	void inventory_slot_impl(int slot, bool detailed = true)
+	{
+		auto request = make_inventory_slot(slot, detailed);
+		submit_request(request);
+	}
+	void inventory_move_impl(
+	    int from,
+	    int to,
+	    std::optional<int> amount = std::nullopt)
+	{
+		auto request = make_inventory_move(from, to, amount);
+		submit_request(request);
+	}
+	void drop_item_impl(
+	    int slot,
+	    std::string direction,
+	    std::optional<int> amount = std::nullopt)
+	{
+		auto request = make_drop_item(slot, direction, amount);
+		submit_request(request);
+	}
+
+	void submit_request(nlohmann::json request)
+	{
 		auto request_id = add_request_id(request);
 		m_request_queue.emplace_back(
 		    request_id,
 		    request,
-		    std::make_shared<std::promise<nlohmann::json>>());
+		    std::make_shared<boost::promise<nlohmann::json>>());
 	}
+
 	static nlohmann::json make_auth(std::string auth)
 	{
 		auto request = R"(
@@ -316,6 +388,74 @@ class ComputerInterface
 		move.at("direction") = direction;
 		return move;
 	}
+	static nlohmann::json make_inventory(bool detailed = true)
+	{
+		auto inventory = R"(
+			{
+				"request_type": "inventory",
+				"request_id": -1,
+				"detailed": true
+			}
+		)"_json;
+		inventory.at("detailed") = detailed;
+		return inventory;
+	}
+	static nlohmann::json make_inventory_slot(int slot, bool detailed = true)
+	{
+		auto inventory_slot = R"(
+			{
+				"request_type": "inventory_slot",
+				"request_id": -1,
+				"slot": 0,
+				"detailed": true
+			}
+		)"_json;
+		inventory_slot.at("slot") = slot;
+		inventory_slot.at("detailed") = detailed;
+		return inventory_slot;
+	}
+	static nlohmann::json make_inventory_move(
+	    int from,
+	    int to,
+	    std::optional<int> amount = std::nullopt)
+	{
+		auto inventory_move = R"(
+			{
+				"request_type": "inventory_move",
+				"request_id": -1,
+				"from": 0,
+				"to": 0
+			}
+		)"_json;
+		inventory_move.at("from") = from;
+		inventory_move.at("to") = to;
+		if (amount)
+		{
+			inventory_move["amount"] = *amount;
+		}
+		return inventory_move;
+	}
+	static nlohmann::json make_drop_item(
+	    int slot,
+	    std::string direction,
+	    std::optional<int> amount = std::nullopt)
+	{
+		auto drop_item = R"(
+			{
+				"request_type": "drop_item",
+				"request_id": -1,
+				"slot": 0,
+				"direction": "forwards"
+			}
+		)"_json;
+		drop_item.at("slot") = slot;
+		drop_item.at("direction") = direction;
+		if (amount)
+		{
+			drop_item["amount"] = *amount;
+		}
+		return drop_item;
+	}
 
 	size_t add_request_id(nlohmann::json &request)
 	{
@@ -330,9 +470,9 @@ class ComputerInterface
 	std::deque<std::tuple<
 	    size_t,
 	    nlohmann::json,
-	    std::shared_ptr<std::promise<nlohmann::json>>>>
+	    std::shared_ptr<boost::promise<nlohmann::json>>>>
 	    m_request_queue;
-	std::unordered_map<size_t, std::shared_ptr<std::promise<nlohmann::json>>>
+	std::unordered_map<size_t, std::shared_ptr<boost::promise<nlohmann::json>>>
 	    m_requests;
 	std::map<int32_t, std::function<void(ComputerInterface &, nlohmann::json)>>
 	    m_unexpected_message_handler;
@@ -356,6 +496,10 @@ class CommandBuffer
 				"shutdown": false
 			}
 		)"_json;
+		if constexpr (std::is_same_v<T, nlohmann::json>)
+		{
+			SetDefaultParser();
+		}
 	}
 
 	void auth(std::string m)
@@ -393,6 +537,36 @@ class CommandBuffer
 		m_commands.at("commands")
 		    .push_back(ComputerInterface::make_move(direction));
 	}
+	void inventory(bool detailed = true)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_inventory(detailed));
+	}
+	void inventory_slot(int slot, bool detailed = true)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_inventory_slot(slot, detailed));
+	}
+	void
+	inventory_move(int from, int to, std::optional<int> amount = std::nullopt)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(
+		        ComputerInterface::make_inventory_move(from, to, amount));
+	}
+	void drop_item(
+	    int slot,
+	    std::string direction,
+	    std::optional<int> amount = std::nullopt)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(
+		        ComputerInterface::make_drop_item(slot, direction, amount));
+	}
 	constexpr void stop()
 	{
 		m_commands.at("commands").push_back(ComputerInterface::make_stop());
@@ -409,15 +583,12 @@ class CommandBuffer
 	}
 
 	private:
-	std::future<T> m_parse(std::future<nlohmann::json> &&future)
+	boost::future<T> m_parse(boost::future<nlohmann::json> &&future)
 	{
-		return std::async(
-		    [parser
-		     = this->m_output_parser](std::future<nlohmann::json> future) {
-			    future.wait();
-			    return parser(future.get());
-		    },
-		    std::move(future));
+		return future.then([this](auto future)
+		{
+			return m_output_parser(future.get());
+		});
 	}
 	void CheckShutdown()
 	{
@@ -450,5 +621,5 @@ void ComputerInterface::execute_buffer_impl(CommandBuffer<T> &buffer)
 	m_request_queue.emplace_back(
 	    request_id,
 	    request,
-	    std::make_shared<std::promise<nlohmann::json>>());
+	    std::make_shared<boost::promise<nlohmann::json>>());
 }

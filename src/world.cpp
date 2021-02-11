@@ -18,7 +18,7 @@ Pathing::Pathing(glm::ivec3 _target, Turtle &turtle, World &world)
 	    turtle.position.position,
 	    _target,
 	    world.make_turtle_obstacle_function(turtle));
-	result = std::async(&AStar::run, pather.get());
+	result = boost::async(&AStar::run, pather.get());
 }
 Pathing::Pathing(
     glm::ivec3 _target,
@@ -28,7 +28,7 @@ Pathing::Pathing(
 	target = _target;
 	pather
 	    = std::make_unique<AStar>(turtle.position.position, _target, obstacle);
-	result = std::async(&AStar::run, pather.get());
+	result = boost::async(&AStar::run, pather.get());
 }
 
 Direction operator+(Direction a, int i)

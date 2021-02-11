@@ -1,6 +1,6 @@
 add_executable(controller main.cpp Computer.cpp Window/Window.cpp Camera/Camera.cpp Mesh/Mesh.cpp Shader/Shader.cpp Texture/Texture.cpp SDL-Helper-Libraries/sfstream/sfstream.cpp SDL-Helper-Libraries/KeyTracker/KeyTracker.cpp Shader/Shader.cpp Camera/Camera.hpp TexturedMesh/TexturedMesh.cpp imgui/imgui.cpp imgui/imgui_demo.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp imgui/backends/imgui_impl_sdl.cpp imgui/backends/imgui_impl_opengl3.cpp imgui/misc/cpp/imgui_stdlib.cpp world.cpp GUI.cpp)
 
-find_package(Boost REQUIRED serialization)
+find_package(Boost COMPONENTS serialization thread REQUIRED)
 find_package(Threads REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(SDL2 REQUIRED)
@@ -15,4 +15,5 @@ add_custom_target(controller_CopyFiles COMMAND ${CMAKE_COMMAND} -E copy_director
 
 add_dependencies(controller controller_CopyFiles)
 
-target_compile_options(controller PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter)
+
+target_compile_options(controller PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter -D_WEBSOCKETPP_NO_CPP11_THREAD_ -DBOOST_THREAD_VERSION=5)
