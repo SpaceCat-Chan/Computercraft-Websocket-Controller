@@ -172,6 +172,144 @@ void draw_main_ui(
 	ImGui::End();
 }
 
+void draw_turtle_inventory(Turtle &turtle, World &world)
+{
+	enum class MODE
+	{
+		full_stack,
+		half_stack,
+		amount
+	};
+	static MODE mode = MODE::full_stack;
+	if (ImGui::RadioButton("Full Stack", mode == MODE::full_stack))
+	{
+		mode = MODE::full_stack;
+	}
+	ImGui::SameLine();
+	if (ImGui::RadioButton("Half Stack", mode == MODE::half_stack))
+	{
+		mode = MODE::half_stack;
+	}
+	ImGui::SameLine();
+	if (ImGui::RadioButton("Amount", mode == MODE::amount))
+	{
+		mode = MODE::amount;
+	}
+	ImGui::SameLine();
+	static int amount = 0;
+	ImGui::InputInt("a", &amount);
+	for (size_t n = 0; n < 16; n++)
+	{
+		ImGui::PushID(n);
+		if ((n % 4) != 0)
+		{
+			ImGui::SameLine();
+		}
+		auto item = turtle.inventory[n];
+		std::string button_text;
+		if (item)
+		{
+			button_text = std::to_string(item->amount);
+		}
+		ImGui::Button(button_text.c_str(), {50, 50});
+		auto is_hovered = ImGui::IsItemHovered();
+
+		if (item && turtle.current_inventory_get == std::nullopt
+		    && !turtle.connection.expired())
+		{
+			if (ImGui::BeginDragDropSource())
+			{
+				ImGui::SetDragDropPayload("INVENTORY_DRAG", &n, sizeof(n));
+				switch (mode)
+				{
+				case MODE::full_stack:
+					ImGui::Text(
+					    "%s\nmoving %i out of %i",
+					    item->name.c_str(),
+					    item->amount,
+					    item->amount);
+					break;
+				case MODE::half_stack:
+					ImGui::Text(
+					    "%s\nmoving %i out of %i",
+					    item->name.c_str(),
+					    item->amount / 2,
+					    item->amount);
+					break;
+				case MODE::amount:
+					ImGui::Text(
+					    "%s\nmoving %i out of %i",
+					    item->name.c_str(),
+					    amount,
+					    item->amount);
+					break;
+				}
+				ImGui::EndDragDropSource();
+			}
+		}
+		if (turtle.current_inventory_get == std::nullopt
+		    && !turtle.connection.expired())
+		{
+			if (ImGui::BeginDragDropTarget())
+			{
+				if (auto payload
+				    = ImGui::AcceptDragDropPayload("INVENTORY_DRAG");
+				    payload != nullptr)
+				{
+					decltype(n) from
+					    = *static_cast<decltype(n) *>(payload->Data);
+					
+					if (from != n)
+					{
+						std::optional<int> move_amount;
+						switch (mode)
+						{
+						case MODE::full_stack:
+							break;
+						case MODE::half_stack:
+							move_amount = item->amount / 2;
+							break;
+						case MODE::amount:
+							move_amount = amount;
+							break;
+						}
+						auto con = turtle.connection.lock();
+						turtle.current_inventory_get
+						    = con->inventory_move_future(from+1, n+1, move_amount)
+						          .then([&turtle,
+						                 &world](boost::future<nlohmann::json>
+						                             result) {
+							          if (!turtle.connection.expired())
+							          {
+								          auto con = turtle.connection.lock();
+								          turtle.last_inventory_get = std::
+								              chrono::steady_clock::now();
+								          return con
+								              ->execute_buffer_future(
+								                  world.inventory_get_buffer)
+								              .get();
+							          }
+							          // connection vanished, unable to get new
+							          // inventory
+							          return turtle.inventory;
+						          });
+					}
+				}
+				ImGui::EndDragDropTarget();
+			}
+		}
+
+		if (item && is_hovered
+		    && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		{
+			ImGui::BeginTooltip();
+			ImGui::Text("%s\ndamage: %i", item->name.c_str(), item->damage);
+			ImGui::EndTooltip();
+		}
+		ImGui::PopID();
+	}
+}
+
 bool draw_turtle_ui(Turtle &turtle, World &world)
 {
 	static bool open = true;
@@ -285,6 +423,11 @@ bool draw_turtle_ui(Turtle &turtle, World &world)
 				turtle.move_forwards();
 			}
 			ImGui::EndGroup();
+			ImGui::TreePop();
+		}
+		if (ImGui::TreeNode("Inventory"))
+		{
+			draw_turtle_inventory(turtle, world);
 			ImGui::TreePop();
 		}
 	}

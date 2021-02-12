@@ -41,6 +41,7 @@ class ComputerInterface
 	ComputerInterface(websocketpp::connection_hdl connection, server &endpoint)
 	    : m_connection(connection), m_endpoint(endpoint)
 	{
+		m_endpoint.send(m_connection, std::string{"wake_up"}, websocketpp::frame::opcode::text);
 	}
 	~ComputerInterface()
 	{

@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "serialize_std_optional.hpp"
 #include <boost/archive/text_iarchive.hpp>
@@ -11,6 +12,7 @@
 #include <boost/serialization/access.hpp>
 #include <boost/serialization/array.hpp>
 #include <boost/serialization/unordered_map.hpp>
+#include <boost/serialization/unordered_set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <glm/ext.hpp>
 #include <glm/gtx/string_cast.hpp>
@@ -118,6 +120,34 @@ struct WorldLocation
 	}
 };
 
+struct BlockValue
+{
+	enum uses
+	{
+		FarmingSoil = 1 << 0,
+		FarmingStorage = 1 << 1
+	} use;
+	std::string to_plant;
+	std::vector<std::string> plants_to_store;
+
+	std::chrono::steady_clock::time_point last_check
+	    = std::chrono::steady_clock::now() - 24h;
+	std::chrono::duration<double> check_every;
+
+	private:
+	friend class boost::serialization::access;
+	template <typename Archive>
+	void serialize(Archive &ar, unsigned int version)
+	{
+		ar &use;
+		ar &to_plant;
+		ar &plants_to_store;
+		double every = check_every.count();
+		ar &every;
+		check_every = std::chrono::duration<double>{every};
+	}
+};
+
 struct Block
 {
 	WorldLocation position;
@@ -125,6 +155,7 @@ struct Block
 	std::string name;
 	int metadata;
 	nlohmann::json blockstate;
+	std::optional<BlockValue> value;
 
 	private:
 	friend class boost::serialization::access;
@@ -137,6 +168,10 @@ struct Block
 		ar &name;
 		ar &metadata;
 		ar &blockstate.dump();
+		if (version >= 1)
+		{
+			ar &value;
+		}
 	}
 	template <typename Archive>
 	void load(Archive &ar, const unsigned int version)
@@ -148,8 +183,14 @@ struct Block
 		std::string blockstate_string;
 		ar &blockstate_string;
 		blockstate = nlohmann::json::parse(blockstate_string);
+		if (version >= 1)
+		{
+			ar &value;
+		}
 	}
 };
+
+BOOST_CLASS_VERSION(Block, 1)
 
 namespace boost
 {
@@ -210,6 +251,34 @@ struct Pathing
 	bool unable_to_path = false;
 };
 
+struct TurtleValue
+{
+	enum jobs
+	{
+		NONE = 0b0,
+		FARMER = 0b1,
+		ALL = 0b1
+	} job
+	    = NONE;
+
+	enum actions
+	{
+		place_block,
+		destroy_block
+	};
+
+	std::optional<actions> current_action;
+
+	private:
+	friend class boost::serialization::access;
+	template <typename Archive>
+	void serialize(Archive &ar, unsigned int version)
+	{
+		ar &job;
+		ar &current_action;
+	}
+};
+
 struct Turtle
 {
 	WorldLocation position;
@@ -221,6 +290,7 @@ struct Turtle
 	std::chrono::steady_clock::time_point last_inventory_get
 	    = std::chrono::steady_clock::now() - 24h;
 	std::optional<boost::future<decltype(inventory)>> current_inventory_get;
+	TurtleValue value;
 
 	void move(Direction direction)
 	{
@@ -489,10 +559,14 @@ struct Turtle
 		{
 			ar &inventory;
 		}
+		if (version >= 2)
+		{
+			ar &value;
+		}
 	}
 };
 
-BOOST_CLASS_VERSION(Turtle, 1)
+BOOST_CLASS_VERSION(Turtle, 2)
 
 template <typename T, typename... U>
 const T &first_in_pack(const T &first, const U &... others)
@@ -535,6 +609,26 @@ void erase_nested(std::unordered_map<T, V> &erase_from, const T &to_erase)
 		erase_from.erase(found);
 	}
 }
+
+struct ServerSettings
+{
+	bool right_click_harvest = true; // available on most modded servers
+	std::unordered_map<std::string, std::vector<std::string>>
+	    plant_drops; // seed_name -> seed_drops ("minecraft:wheat_seeds" -> {"minecraft:wheat"})
+	std::unordered_set<std::string> blocks_to_not_be_ontop_of; //example: farmland, 
+	                                                          //if a turtle stands ontop of farmland, 
+	                                                          //the farmland becomes dirt
+
+	private:
+	friend class boost::serialization::access;
+	template <typename Archive>
+	void serialize(Archive &ar, unsigned int version)
+	{
+		ar &right_click_harvest;
+		ar &plant_drops;
+		ar &blocks_to_not_be_ontop_of
+	}
+};
 
 class World
 {
@@ -993,6 +1087,8 @@ class World
 	            std::unordered_map<int, std::unordered_map<int, Block>>>>>
 	    m_blocks;
 
+	std::unordered_map<std::string, ServerSettings> server_settings;
+
 	std::vector<Turtle> m_turtles;
 	std::vector<std::pair<
 	    std::shared_ptr<ComputerInterface>,
@@ -1009,5 +1105,11 @@ class World
 	{
 		ar &m_blocks;
 		ar &m_turtles;
+		if(version >= 1)
+		{
+			ar &server_settings;
+		}
 	}
 };
+
+BOOST_CLASS_VERSION(World, 1)
