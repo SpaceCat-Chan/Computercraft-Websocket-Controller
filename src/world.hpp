@@ -1374,7 +1374,7 @@ class World
 
 			for (auto &turtle : m_turtles)
 			{
-				if (turtle.position.position == location && turtle.name != name)
+				if (turtle.position.position == position && turtle.name != name)
 				{
 					return true;
 				}
