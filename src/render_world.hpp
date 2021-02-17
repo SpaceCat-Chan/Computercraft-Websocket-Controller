@@ -60,6 +60,8 @@ class RenderWorld
 			std::vector<glm::ivec4> new_turtle_positions;
 			std::vector<glm::vec4> new_turtle_colors;
 
+
+
 			if (m_selected_server)
 			{
 				auto server = world.m_blocks.find(*m_selected_server);

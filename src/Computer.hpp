@@ -41,7 +41,10 @@ class ComputerInterface
 	ComputerInterface(websocketpp::connection_hdl connection, server &endpoint)
 	    : m_connection(connection), m_endpoint(endpoint)
 	{
-		m_endpoint.send(m_connection, std::string{"wake_up"}, websocketpp::frame::opcode::text);
+		m_endpoint.send(
+		    m_connection,
+		    std::string{"wake_up"},
+		    websocketpp::frame::opcode::text);
 	}
 	~ComputerInterface()
 	{
@@ -69,9 +72,8 @@ class ComputerInterface
 		}
 	}
 
-	void close(
-	    const websocketpp::close::status::value status,
-	    const std::string &why)
+	void
+	close(const websocketpp::close::status::value status, const std::string &why)
 	{
 		m_endpoint.close(m_connection, status, why);
 	}
@@ -82,7 +84,7 @@ class ComputerInterface
 		std::cout << message->get_payload() << '\n';
 		if (json_response.contains("special"))
 		{
-			if(json_response.at("special") == 1)
+			if (json_response.at("special") == 1)
 			{
 				ready_to_send = true;
 			}
@@ -122,7 +124,8 @@ class ComputerInterface
 	{
 		std::scoped_lock a{request_mutex};
 		constexpr std::chrono::duration<double> threshold{0.1};
-		if (!m_request_queue.empty() && m_time_since_last_request > threshold && ready_to_send)
+		if (!m_request_queue.empty() && m_time_since_last_request > threshold
+		    && ready_to_send)
 		{
 			m_endpoint.send(
 			    m_connection,
@@ -171,8 +174,12 @@ class ComputerInterface
 	{
 		std::scoped_lock a{request_mutex};
 		execute_buffer_impl<T>(buffer);
-		return buffer.m_parse(
-		    std::get<2>(m_request_queue.back())->get_future());
+		auto parser = buffer.get_output_parser();
+		return std::get<2>(m_request_queue.back())
+		    ->get_future()
+		    .then([parser](boost::future<nlohmann::json> f) {
+			    return parser(f.get());
+		    });
 	}
 	void inspect(std::string direction)
 	{
@@ -261,6 +268,39 @@ class ComputerInterface
 		drop_item_impl(slot, direction, amount);
 		return std::get<2>(m_request_queue.back())->get_future();
 	}
+	auto pickup_item(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		pickup_item_impl(direction);
+	}
+	auto pickup_item_future(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		pickup_item_impl(direction);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	auto place_block(std::string direction, int slot)
+	{
+		std::scoped_lock a{request_mutex};
+		place_block_impl(direction, slot);
+	}
+	auto place_block_future(std::string direction, int slot)
+	{
+		std::scoped_lock a{request_mutex};
+		place_block_impl(direction, slot);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
+	auto break_block(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		break_block_impl(direction);
+	}
+	auto break_block_future(std::string direction)
+	{
+		std::scoped_lock a{request_mutex};
+		break_block_impl(direction);
+		return std::get<2>(m_request_queue.back())->get_future();
+	}
 
 	private:
 	void auth_message_impl(std::string auth)
@@ -318,6 +358,18 @@ class ComputerInterface
 	{
 		auto request = make_drop_item(slot, direction, amount);
 		submit_request(request);
+	}
+	void pickup_item_impl(std::string direction)
+	{
+		submit_request(make_pickup_item(direction));
+	}
+	void place_block_impl(std::string direction, int slot)
+	{
+		submit_request(make_place_block(direction, slot));
+	}
+	void break_block_impl(std::string direction)
+	{
+		submit_request(make_break_block(direction));
 	}
 
 	void submit_request(nlohmann::json request)
@@ -467,6 +519,44 @@ class ComputerInterface
 		}
 		return drop_item;
 	}
+	static nlohmann::json make_pickup_item(std::string direction)
+	{
+		auto pickup_item = R"(
+			{
+				"request_type": "pickup_item",
+				"request_id": -1,
+				"direction": "forward"
+			}
+		)"_json;
+		pickup_item.at("direction") = direction;
+		return pickup_item;
+	}
+	static nlohmann::json make_place_block(std::string direction, int slot)
+	{
+		auto place_block = R"(
+			{
+				"request_type": "place_block",
+				"request_id": -1,
+				"slot": 0,
+				"direction": "forward"
+			}
+		)"_json;
+		place_block.at("slot") = slot;
+		place_block.at("direction") = direction;
+		return place_block;
+	}
+	static nlohmann::json make_break_block(std::string direction)
+	{
+		auto break_block = R"(
+			{
+				"request_type": "break_block",
+				"request_id": -1,
+				"direction": "forward"
+			}
+		)"_json;
+		break_block.at("direction") = direction;
+		return break_block;
+	}
 
 	size_t add_request_id(nlohmann::json &request)
 	{
@@ -566,8 +656,7 @@ class CommandBuffer
 	{
 		CheckShutdown();
 		m_commands.at("commands")
-		    .push_back(
-		        ComputerInterface::make_inventory_move(from, to, amount));
+		    .push_back(ComputerInterface::make_inventory_move(from, to, amount));
 	}
 	void drop_item(
 	    int slot,
@@ -578,6 +667,24 @@ class CommandBuffer
 		m_commands.at("commands")
 		    .push_back(
 		        ComputerInterface::make_drop_item(slot, direction, amount));
+	}
+	void pickup_item(std::string direction)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_pickup_item(direction));
+	}
+	void place_block(std::string direction, int slot)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_place_block(direction, slot));
+	}
+	void break_block(std::string direction)
+	{
+		CheckShutdown();
+		m_commands.at("commands")
+		    .push_back(ComputerInterface::make_break_block(direction));
 	}
 	constexpr void stop()
 	{
@@ -595,10 +702,9 @@ class CommandBuffer
 	}
 
 	private:
-	boost::future<T> m_parse(boost::future<nlohmann::json> &&future)
+	std::function<T(nlohmann::json)> get_output_parser()
 	{
-		return future.then(
-		    [this](auto future) { return m_output_parser(future.get()); });
+		return m_output_parser;
 	}
 	void CheckShutdown()
 	{

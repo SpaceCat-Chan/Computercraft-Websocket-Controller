@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <map>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -119,100 +120,6 @@ struct WorldLocation
 		ar &direction;
 	}
 };
-
-struct BlockValue
-{
-	enum uses
-	{
-		FarmingSoil = 1 << 0,
-		FarmingStorage = 1 << 1
-	} use;
-	std::string to_plant;
-	std::vector<std::string> plants_to_store;
-
-	std::chrono::steady_clock::time_point last_check
-	    = std::chrono::steady_clock::now() - 24h;
-	std::chrono::duration<double> check_every;
-
-	private:
-	friend class boost::serialization::access;
-	template <typename Archive>
-	void serialize(Archive &ar, unsigned int version)
-	{
-		ar &use;
-		ar &to_plant;
-		ar &plants_to_store;
-		double every = check_every.count();
-		ar &every;
-		check_every = std::chrono::duration<double>{every};
-	}
-};
-
-struct Block
-{
-	WorldLocation position;
-	glm::dvec3 color;
-	std::string name;
-	int metadata;
-	nlohmann::json blockstate;
-	std::optional<BlockValue> value;
-
-	private:
-	friend class boost::serialization::access;
-	BOOST_SERIALIZATION_SPLIT_MEMBER()
-	template <typename Archive>
-	void save(Archive &ar, const unsigned int version) const
-	{
-		ar &position;
-		ar &color;
-		ar &name;
-		ar &metadata;
-		ar &blockstate.dump();
-		if (version >= 1)
-		{
-			ar &value;
-		}
-	}
-	template <typename Archive>
-	void load(Archive &ar, const unsigned int version)
-	{
-		ar &position;
-		ar &color;
-		ar &name;
-		ar &metadata;
-		std::string blockstate_string;
-		ar &blockstate_string;
-		blockstate = nlohmann::json::parse(blockstate_string);
-		if (version >= 1)
-		{
-			ar &value;
-		}
-	}
-};
-
-BOOST_CLASS_VERSION(Block, 1)
-
-namespace boost
-{
-namespace serialization
-{
-template <typename Archive>
-void serialize(Archive &ar, glm::dvec3 &vec, const unsigned int version)
-{
-	ar &vec[0];
-	ar &vec[1];
-	ar &vec[2];
-}
-template <typename Archive>
-void serialize(Archive &ar, glm::ivec3 &vec, const unsigned int version)
-{
-	ar &vec[0];
-	ar &vec[1];
-	ar &vec[2];
-}
-} // namespace serialization
-} // namespace boost
-
 struct Item
 {
 	std::string name;
@@ -245,7 +152,7 @@ struct Pathing
 	glm::ivec3 target;
 	std::vector<glm::ivec3> latest_results;
 	int movement_index
-	    = 0; // lates movement in latest_results that has been done
+	    = 0; // latest movement in latest_results that has been done
 	std::optional<boost::future<nlohmann::json>> pending_movement;
 	bool finished = false;
 	bool unable_to_path = false;
@@ -264,10 +171,17 @@ struct TurtleValue
 	enum actions
 	{
 		place_block,
-		destroy_block
+		destroy_block,
+		picking_up_plant_drops,
+		checking_block,
+		harvest_plant //same as place_block/break_block and then devolves into picking_up_plant_drops
 	};
 
 	std::optional<actions> current_action;
+	glm::ivec3 where;
+	glm::ivec3 current_offset;
+	std::variant<Direction, std::monostate, std::monostate> direction;
+	int inventory_slot;
 
 	private:
 	friend class boost::serialization::access;
@@ -276,6 +190,8 @@ struct TurtleValue
 	{
 		ar &job;
 		ar &current_action;
+		ar &where;
+		ar &current_offset;
 	}
 };
 
@@ -304,12 +220,16 @@ struct Turtle
 			{
 			case 0:
 				con->execute_buffer(forward_0);
+				break;
 			case 1:
 				con->execute_buffer(forward_1);
+				break;
 			case 2:
 				con->execute_buffer(forward_2);
+				break;
 			case 3:
 				con->execute_buffer(forward_3);
+				break;
 			}
 		}
 	}
@@ -333,9 +253,7 @@ struct Turtle
 				return con->execute_buffer_future(forward_3);
 			}
 		}
-		boost::promise<nlohmann::json> a;
-		a.set_value(nlohmann::json::object());
-		return a.get_future();
+		return boost::make_ready_future(nlohmann::json::object());
 	}
 	void move_forwards()
 	{
@@ -498,6 +416,219 @@ struct Turtle
 		a.set_value(nlohmann::json::object());
 		return a.get_future();
 	}
+	void break_block(Direction direction)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			int offset = (static_cast<int>(direction)
+			              - static_cast<int>(position.direction) + 4)
+			             % 4;
+			switch (offset)
+			{
+			case 0:
+				con->execute_buffer(break_0);
+				break;
+			case 1:
+				con->execute_buffer(break_1);
+				break;
+			case 2:
+				con->execute_buffer(break_2);
+				break;
+			case 3:
+				con->execute_buffer(break_3);
+				break;
+			}
+		}
+	}
+	boost::future<nlohmann::json> break_block_future(Direction direction)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			int offset = (static_cast<int>(direction)
+			              - static_cast<int>(position.direction) + 4)
+			             % 4;
+			switch (offset)
+			{
+			case 0:
+				return con->execute_buffer_future(break_0);
+			case 1:
+				return con->execute_buffer_future(break_1);
+			case 2:
+				return con->execute_buffer_future(break_2);
+			case 3:
+				return con->execute_buffer_future(break_3);
+			}
+		}
+		return boost::make_ready_future(nlohmann::json::object());
+	}
+	void break_block_up()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->break_block("up");
+		}
+	}
+	boost::future<nlohmann::json> break_block_up_future()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->break_block_future("up");
+		}
+		return boost::make_ready_future(nlohmann::json::object());
+	}
+	void break_block_down()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->break_block("down");
+		}
+	}
+	boost::future<nlohmann::json> break_block_down_future()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->break_block_future("down");
+		}
+		return boost::make_ready_future(nlohmann::json::object());
+	}
+	void break_block_front()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->break_block("forward");
+		}
+	}
+	boost::future<nlohmann::json> break_block_front_future()
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->break_block_future("forward");
+		}
+		return boost::make_ready_future(nlohmann::json::object());
+	}
+	void place_block(Direction direction, int slot)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			int offset = (static_cast<int>(direction)
+			              - static_cast<int>(position.direction) + 4)
+			             % 4;
+			CommandBuffer place;
+			switch (offset)
+			{
+			case 0:
+				place.place_block("forward", slot);
+				con->execute_buffer(place);
+				break;
+			case 1:
+				place.buffer(rotate_1);
+				place.place_block("forward", slot);
+				con->execute_buffer(forward_1);
+				break;
+			case 2:
+				place.buffer(rotate_2);
+				place.place_block("forward", slot);
+				con->execute_buffer(forward_2);
+				break;
+			case 3:
+				place.buffer(rotate_3);
+				place.place_block("forward", slot);
+				con->execute_buffer(forward_3);
+				break;
+			}
+		}
+	}
+	boost::future<nlohmann::json>
+	place_block_future(Direction direction, int slot)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			int offset = (static_cast<int>(direction)
+			              - static_cast<int>(position.direction) + 4)
+			             % 4;
+			CommandBuffer<nlohmann::json> place;
+			switch (offset)
+			{
+			case 0:
+				place.place_block("forward", slot);
+				return con->execute_buffer_future(place);
+			case 1:
+				place.buffer(rotate_1);
+				place.place_block("forward", slot);
+				return con->execute_buffer_future(place);
+			case 2:
+				place.buffer(rotate_2);
+				place.place_block("forward", slot);
+				return con->execute_buffer_future(place);
+			case 3:
+				place.buffer(rotate_3);
+				place.place_block("forward", slot);
+				return con->execute_buffer_future(place);
+			}
+		}
+		return boost::make_ready_future(nlohmann::json::object());
+	}
+	void place_block_up(int slot)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->place_block("up", slot);
+		}
+	}
+	boost::future<nlohmann::json> place_block_up_future(int slot)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->place_block_future("up", slot);
+		}
+		return boost::make_ready_future(nlohmann::json::object());
+	}
+	void place_block_down(int slot)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->place_block("down", slot);
+		}
+	}
+	boost::future<nlohmann::json> place_block_down_future(int slot)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->place_block_future("down", slot);
+		}
+		return boost::make_ready_future(nlohmann::json::object());
+	}
+	void place_block_front(int slot)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			con->place_block("forward", slot);
+		}
+	}
+	boost::future<nlohmann::json> place_block_front_future(int slot)
+	{
+		if (!connection.expired())
+		{
+			auto con = connection.lock().get();
+			return con->place_block_future("forward", slot);
+		}
+		return boost::make_ready_future(nlohmann::json::object());
+	}
 
 	private:
 	class static_init_t
@@ -530,6 +661,21 @@ struct Turtle
 			forward_3.move("forward");
 			forward_3.SetDefaultParser();
 
+			break_0.break_block("forward");
+			break_0.SetDefaultParser();
+
+			break_1.buffer(rotate_1);
+			break_1.break_block("forward");
+			break_1.SetDefaultParser();
+
+			break_2.buffer(rotate_2);
+			break_2.break_block("forward");
+			break_2.SetDefaultParser();
+
+			break_3.buffer(rotate_3);
+			break_3.break_block("forward");
+			break_3.SetDefaultParser();
+
 			up.move("up");
 			up.SetDefaultParser();
 			down.move("down");
@@ -546,6 +692,10 @@ struct Turtle
 	static CommandBuffer<nlohmann::json> forward_1;
 	static CommandBuffer<nlohmann::json> forward_2;
 	static CommandBuffer<nlohmann::json> forward_3;
+	static CommandBuffer<nlohmann::json> break_0;
+	static CommandBuffer<nlohmann::json> break_1;
+	static CommandBuffer<nlohmann::json> break_2;
+	static CommandBuffer<nlohmann::json> break_3;
 	static CommandBuffer<nlohmann::json> up;
 	static CommandBuffer<nlohmann::json> down;
 
@@ -568,6 +718,106 @@ struct Turtle
 
 BOOST_CLASS_VERSION(Turtle, 2)
 
+struct BlockValue
+{
+	enum uses
+	{
+		FarmingSoil = 1 << 0,
+		FarmingStorage = 1 << 1,
+		FarmingSeed = 1 << 2
+	} use;
+
+	bool is_being_checked = false;
+
+	TurtleValue::jobs associated_jobs;
+
+	std::string to_plant;
+	std::vector<std::string> allowed_items;
+
+	std::chrono::steady_clock::time_point last_check
+	    = std::chrono::steady_clock::now() - 24h;
+	std::chrono::duration<double> check_every;
+
+	private:
+	friend class boost::serialization::access;
+	template <typename Archive>
+	void serialize(Archive &ar, unsigned int version)
+	{
+		ar &use;
+		ar &to_plant;
+		ar &allowed_items;
+		double every = check_every.count();
+		ar &every;
+		check_every = std::chrono::duration<double>{every};
+		ar &is_being_checked;
+	}
+};
+
+struct Block
+{
+	WorldLocation position;
+	glm::dvec3 color;
+	std::string name;
+	int metadata;
+	nlohmann::json blockstate;
+	std::optional<BlockValue> value;
+
+	private:
+	friend class boost::serialization::access;
+	BOOST_SERIALIZATION_SPLIT_MEMBER()
+	template <typename Archive>
+	void save(Archive &ar, const unsigned int version) const
+	{
+		ar &position;
+		ar &color;
+		ar &name;
+		ar &metadata;
+		ar &blockstate.dump();
+		if (version >= 1)
+		{
+			ar &value;
+		}
+	}
+	template <typename Archive>
+	void load(Archive &ar, const unsigned int version)
+	{
+		ar &position;
+		ar &color;
+		ar &name;
+		ar &metadata;
+		std::string blockstate_string;
+		ar &blockstate_string;
+		blockstate = nlohmann::json::parse(blockstate_string);
+		if (version >= 1)
+		{
+			ar &value;
+		}
+	}
+};
+
+BOOST_CLASS_VERSION(Block, 1)
+
+namespace boost
+{
+namespace serialization
+{
+template <typename Archive>
+void serialize(Archive &ar, glm::dvec3 &vec, const unsigned int version)
+{
+	ar &vec[0];
+	ar &vec[1];
+	ar &vec[2];
+}
+template <typename Archive>
+void serialize(Archive &ar, glm::ivec3 &vec, const unsigned int version)
+{
+	ar &vec[0];
+	ar &vec[1];
+	ar &vec[2];
+}
+} // namespace serialization
+} // namespace boost
+
 template <typename T, typename... U>
 const T &first_in_pack(const T &first, const U &... others)
 {
@@ -584,8 +834,7 @@ template <typename U, typename V, typename... T>
 void erase_nested(
     std::unordered_map<
         V,
-        std::unordered_map<typename first_in_pack_s<T...>::type, U>>
-        &erase_from,
+        std::unordered_map<typename first_in_pack_s<T...>::type, U>> &erase_from,
     const V &to_erase,
     const T &... next_layers)
 {
@@ -615,9 +864,12 @@ struct ServerSettings
 	bool right_click_harvest = true; // available on most modded servers
 	std::unordered_map<std::string, std::vector<std::string>>
 	    plant_drops; // seed_name -> seed_drops ("minecraft:wheat_seeds" -> {"minecraft:wheat"})
-	std::unordered_set<std::string> blocks_to_not_be_ontop_of; //example: farmland, 
-	                                                          //if a turtle stands ontop of farmland, 
-	                                                          //the farmland becomes dirt
+	std::unordered_set<std::string>
+	    blocks_to_not_be_ontop_of; //example: farmland,
+	                               //if a turtle stands ontop of farmland,
+	                               //the farmland becomes dirt
+	std::unordered_map<std::string, int>
+	    seed_maturity; //the growth level where a seed is mature
 
 	private:
 	friend class boost::serialization::access;
@@ -626,7 +878,8 @@ struct ServerSettings
 	{
 		ar &right_click_harvest;
 		ar &plant_drops;
-		ar &blocks_to_not_be_ontop_of
+		ar &blocks_to_not_be_ontop_of;
+		ar &seed_maturity;
 	}
 };
 
@@ -716,8 +969,7 @@ class World
 				    = parsed_block.second.position;
 				parsed_block.first->position.dimension
 				    = parsed_block.second.dimension;
-				parsed_block.first->position.server
-				    = parsed_block.second.server;
+				parsed_block.first->position.server = parsed_block.second.server;
 				parsed_block.first->metadata
 				    = block.at("block").at("metadata").get<int>();
 				parsed_block.first->blockstate = block.at("block").at("state");
@@ -820,8 +1072,7 @@ class World
 					turtle.current_inventory_get
 					    = turtle_connection->execute_buffer_future(
 					        inventory_get_buffer);
-					turtle.last_inventory_get
-					    = std::chrono::steady_clock::now();
+					turtle.last_inventory_get = std::chrono::steady_clock::now();
 				}
 			}
 		}
@@ -1011,8 +1262,7 @@ class World
 		}
 		else if (move_diff == glm::ivec3{0, -1, 0})
 		{
-			turtle.current_pathing->pending_movement
-			    = turtle.move_down_future();
+			turtle.current_pathing->pending_movement = turtle.move_down_future();
 		}
 		else
 		{
@@ -1032,35 +1282,96 @@ class World
 		                     [turtle.current_pathing->movement_index];
 	}
 
-	std::function<bool(glm::ivec3)>
-	make_turtle_obstacle_function(Turtle &turtle)
+	std::optional<std::reference_wrapper<Block>> block_at(
+	    const std::string &server_name,
+	    const std::string &dimension_name,
+	    glm::ivec3 location)
+	{
+		if (auto server = m_blocks.find(server_name); server != m_blocks.end())
+		{
+			if (auto dimension = server->second.find(dimension_name);
+			    dimension != server->second.end())
+			{
+				if (auto x = dimension->second.find(location.x);
+				    x != dimension->second.end())
+				{
+					if (auto y = x->second.find(location.y);
+					    y != x->second.end())
+					{
+						if (auto z = y->second.find(location.z);
+						    z != y->second.end())
+						{
+							return y->second.at(z->first);
+						}
+					}
+				}
+			}
+		}
+		return std::nullopt;
+	}
+
+	std::function<bool(glm::ivec3)> make_turtle_obstacle_function(Turtle &turtle)
 	{
 		return [this,
 		        name = turtle.name,
 		        server_name = turtle.position.server,
 		        dimension_name
 		        = turtle.position.dimension](glm::ivec3 location) -> bool {
-			if (auto server = m_blocks.find(server_name);
-			    server != m_blocks.end())
+			auto block = block_at(server_name, dimension_name, location);
+			if (block)
 			{
-				if (auto dimension = server->second.find(dimension_name);
-				    dimension != server->second.end())
+				return true;
+			}
+			auto block_below = block_at(
+			    server_name,
+			    dimension_name,
+			    location + glm::ivec3{0, -1, 0});
+			if (block_below)
+			{
+				if (server_settings[server_name]
+				        .blocks_to_not_be_ontop_of.contains(
+				            block_below->get().name))
 				{
-					if (auto x = dimension->second.find(location.x);
-					    x != dimension->second.end())
-					{
-						if (auto y = x->second.find(location.y);
-						    y != x->second.end())
-						{
-							if (auto z = y->second.find(location.z);
-							    z != y->second.end())
-							{
-								return true;
-							}
-						}
-					}
+					return true;
 				}
 			}
+
+			for (auto &turtle : m_turtles)
+			{
+				if (turtle.position.position == location && turtle.name != name)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+	}
+	std::function<bool(glm::ivec3)>
+	make_turtle_allow_mining_obstacle_function(Turtle &turtle)
+	{
+		return [this,
+		        name = turtle.name,
+		        server = turtle.position.server,
+		        dimension
+		        = turtle.position.dimension](glm::ivec3 position) -> bool {
+			auto block = block_at(server, dimension, position);
+			if (block)
+			{
+				if (block->get().value)
+				{
+					return true;
+				}
+			}
+			auto block_below = block_at(server, dimension, position);
+			if (block_below)
+			{
+				if (server_settings[server].blocks_to_not_be_ontop_of.contains(
+				        block_below->get().name))
+				{
+					return true;
+				}
+			}
+
 			for (auto &turtle : m_turtles)
 			{
 				if (turtle.position.position == location && turtle.name != name)
@@ -1105,7 +1416,7 @@ class World
 	{
 		ar &m_blocks;
 		ar &m_turtles;
-		if(version >= 1)
+		if (version >= 1)
 		{
 			ar &server_settings;
 		}
@@ -1113,3 +1424,5 @@ class World
 };
 
 BOOST_CLASS_VERSION(World, 1)
+
+void server_automation(World &world, const std::string server_name, bool &stop);

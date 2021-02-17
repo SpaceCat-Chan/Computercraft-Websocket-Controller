@@ -130,6 +130,9 @@ int main()
 	bool in_freecam = false;
 	auto frame_end_time = std::chrono::steady_clock::now();
 	float forwards_movement_speed = 7.5;
+
+	//one per server stored in ${world}
+	std::unordered_map<std::string, boost::future<void>> automation_threads;
 	while (!stop)
 	{
 		auto frame_start_time = std::chrono::steady_clock::now();
@@ -286,6 +289,39 @@ int main()
 		world.update_pathings();
 		world.update_data_gets();
 		world.get_data_from_turtles();
+
+		for (auto &server : world.m_blocks)
+		{
+			if (automation_threads.find(server.first)
+			    == automation_threads.end())
+			{
+				auto [thread, success] = automation_threads.emplace(
+				    server.first,
+				    boost::future<void>{});
+				if (success)
+				{
+					thread->second = boost::async(
+					    &server_automation,
+					    std::reference_wrapper{world},
+					    thread->first,
+					    std::reference_wrapper{stop});
+				}
+			}
+		}
+
+		std::vector<std::string> to_delete;
+		for (auto &auto_thread : automation_threads)
+		{
+			if (auto_thread.second.is_ready())
+			{
+				to_delete.push_back(auto_thread.first);
+			}
+		}
+		for (auto &del : to_delete)
+		{
+			automation_threads.erase(del);
+		}
+
 		render_world.copy_into_buffers(world, in_freecam);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 		render_world.render();
