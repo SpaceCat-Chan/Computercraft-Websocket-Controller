@@ -88,7 +88,7 @@ std::optional<std::reference_wrapper<Turtle>> find_closest_turtle(
     TurtleValue::jobs jobs,
     World &world)
 {
-	find_closest_turtle(
+	return find_closest_turtle(
 	    position.position,
 	    jobs,
 	    world,
