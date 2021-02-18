@@ -130,6 +130,7 @@ int main()
 	bool in_freecam = false;
 	auto frame_end_time = std::chrono::steady_clock::now();
 	float forwards_movement_speed = 7.5;
+	std::unordered_set<glm::ivec3> blocks_where_we_are_editting_the_value_field;
 
 	//one per server stored in ${world}
 	std::unordered_map<std::string, boost::future<void>> automation_threads;
@@ -200,7 +201,37 @@ int main()
 					        < 200ms
 					    && !io.WantCaptureMouse)
 					{
-						currently_selected = currently_hovered;
+						if (keyboard[SDL_SCANCODE_LCTRL].Active)
+						{
+							if (currently_hovered.index() == 1)
+							{
+								if (blocks_where_we_are_editting_the_value_field
+								        .contains(
+								            std::get<1>(currently_hovered)))
+								{
+									blocks_where_we_are_editting_the_value_field
+									    .erase(std::get<1>(currently_hovered));
+								}
+								else
+								{
+									blocks_where_we_are_editting_the_value_field
+									    .emplace(std::get<1>(currently_hovered));
+								}
+								render_world.update_edit_blocks(
+								    blocks_where_we_are_editting_the_value_field);
+							}
+							else if (currently_hovered.index() == 0)
+							{
+								blocks_where_we_are_editting_the_value_field
+								    .clear();
+								render_world.update_edit_blocks(
+								    blocks_where_we_are_editting_the_value_field);
+							}
+						}
+						else
+						{
+							currently_selected = currently_hovered;
+						}
 					}
 				}
 				break;

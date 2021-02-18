@@ -60,8 +60,6 @@ class RenderWorld
 			std::vector<glm::ivec4> new_turtle_positions;
 			std::vector<glm::vec4> new_turtle_colors;
 
-
-
 			if (m_selected_server)
 			{
 				auto server = world.m_blocks.find(*m_selected_server);
@@ -146,15 +144,30 @@ class RenderWorld
 		    GL_UNSIGNED_INT,
 		    0,
 		    m_block_positions.size());
+
+		m_basic_shader.Bind();
+		m_basic_shader.SetUniform("u_view_proj", camera.GetMVP());
+		m_selected_mesh.Bind(m_basic_shader);
 		if (selected_location)
 		{
-			m_basic_shader.Bind();
-			m_basic_shader.SetUniform("u_view_proj", camera.GetMVP());
 			m_basic_shader.SetUniform(
 			    "u_model",
 			    glm::translate(glm::mat4{1}, *selected_location));
+			m_basic_shader.SetUniform("u_color", glm::dvec4{1, 0, 0, 1});
 
-			m_selected_mesh.Bind(m_basic_shader);
+			glDrawElements(
+			    GL_TRIANGLES,
+			    m_selected_mesh.GetIndexCount(0),
+			    GL_UNSIGNED_INT,
+			    nullptr);
+		}
+		m_basic_shader.SetUniform("u_color", glm::dvec4{1, 1, 0, 1});
+		for (auto &block : m_value_edits)
+		{
+			m_basic_shader.SetUniform(
+			    "u_model",
+			    glm::translate(glm::mat4{1}, glm::vec3{block}));
+
 			glDrawElements(
 			    GL_TRIANGLES,
 			    m_selected_mesh.GetIndexCount(0),
@@ -232,6 +245,11 @@ class RenderWorld
 		selected_location = location;
 	}
 
+	void update_edit_blocks(const std::unordered_set<glm::ivec3> &value_edits)
+	{
+		m_value_edits = std::vector<glm::ivec3>{value_edits.begin(), value_edits.end()};
+	}
+
 	Camera camera;
 
 	private:
@@ -253,6 +271,8 @@ class RenderWorld
 	Shader m_shader;
 	Shader m_line_shader;
 	Shader m_basic_shader;
+
+	std::vector<glm::ivec3> m_value_edits;
 
 	bool m_is_data_dirty = false;
 	bool m_are_pathes_dirty = false;

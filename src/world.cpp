@@ -114,7 +114,6 @@ std::optional<int> find_item_slot(Turtle &turtle, std::string name)
 
 void server_automation(World &world, const std::string server_name, bool &stop)
 {
-	return;
 	while (!stop)
 	{
 		if (world.m_blocks.find(server_name) == world.m_blocks.end())
@@ -294,6 +293,21 @@ void server_automation(World &world, const std::string server_name, bool &stop)
 							if (turtle.value.current_action
 							    == TurtleValue::harvest_plant)
 							{
+								turtle.value.where += glm::ivec3{0, 1, 0};
+								switch (turtle.value.direction.index())
+								{
+								case 0:
+									turtle.value.where
+									    += -direction_to_orientation(
+									        std::get<0>(turtle.value.direction));
+									break;
+								case 1:
+									turtle.value.where += glm::ivec3{0,1,0};
+									break;
+								case 2:
+									turtle.value.where += glm::ivec3{0,-1,0};
+									break;
+								}
 								turtle.value.current_offset
 								    = glm::ivec3{-1, 0, -1};
 								turtle.value.current_action
@@ -419,11 +433,11 @@ void server_automation(World &world, const std::string server_name, bool &stop)
 							    -turtle.value.current_offset));
 						}
 						turtle.value.current_action = std::nullopt;
-						auto &block = world.m_blocks.at(server_name)
-						                            [turtle.position.dimension]
-						                            [turtle.position.position.x]
-						                            [turtle.position.position.y]
-						                            [turtle.position.position.z];
+						auto &block = world.m_blocks.at(
+						    server_name)[turtle.position.dimension]
+						                [turtle.position.position.x]
+						                [turtle.position.position.y]
+						                [turtle.position.position.z];
 						if (block.value)
 						{
 							block.value->is_being_checked = true;

@@ -116,8 +116,7 @@ void draw_main_ui(
 					{
 						render_world.select_turtle(i);
 						render_world.select_server(turtle.position.server);
-						render_world.select_dimension(
-						    turtle.position.dimension);
+						render_world.select_dimension(turtle.position.dimension);
 					}
 				}
 			}
@@ -258,7 +257,7 @@ void draw_turtle_inventory(Turtle &turtle, World &world)
 				{
 					decltype(n) from
 					    = *static_cast<decltype(n) *>(payload->Data);
-					
+
 					if (from != n)
 					{
 						std::optional<int> move_amount;
@@ -275,15 +274,18 @@ void draw_turtle_inventory(Turtle &turtle, World &world)
 						}
 						auto con = turtle.connection.lock();
 						turtle.current_inventory_get
-						    = con->inventory_move_future(from+1, n+1, move_amount)
+						    = con->inventory_move_future(
+						             from + 1,
+						             n + 1,
+						             move_amount)
 						          .then([&turtle,
 						                 &world](boost::future<nlohmann::json>
 						                             result) {
 							          if (!turtle.connection.expired())
 							          {
 								          auto con = turtle.connection.lock();
-								          turtle.last_inventory_get = std::
-								              chrono::steady_clock::now();
+								          turtle.last_inventory_get
+								              = std::chrono::steady_clock::now();
 								          return con
 								              ->execute_buffer_future(
 								                  world.inventory_get_buffer)
@@ -299,8 +301,7 @@ void draw_turtle_inventory(Turtle &turtle, World &world)
 			}
 		}
 
-		if (item && is_hovered
-		    && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+		if (item && is_hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 		{
 			ImGui::BeginTooltip();
 			ImGui::Text("%s\ndamage: %i", item->name.c_str(), item->damage);
@@ -310,9 +311,214 @@ void draw_turtle_inventory(Turtle &turtle, World &world)
 	}
 }
 
+constexpr const char *action_names[]
+    = {"place block",
+       "break block",
+       "pick up plant drops",
+       "check block",
+       "harvest plant"};
+
+constexpr int action_cares[] = {0b1011, 0b0011, 0b0101, 0b0101, 0b0011};
+constexpr int care_about_where = 1 << 0;
+constexpr int care_about_direction = 1 << 1;
+constexpr int care_about_current_offset = 1 << 2;
+constexpr int care_about_inventory_slot = 1 << 3;
+
+template <typename T, size_t N>
+size_t array_size(T (&array)[N])
+{
+	return N;
+}
+
+void draw_turtle_value(Turtle &turtle)
+{
+	ImGui::Text("Current Jobs: ");
+	bool is_farmer = (turtle.value.job & TurtleValue::FARMER);
+	bool is_farmer_old = is_farmer;
+	ImGui::Checkbox("Farmer", &is_farmer);
+	if (is_farmer != is_farmer_old)
+	{
+		turtle.value.job = static_cast<TurtleValue::jobs>(
+		    turtle.value.job ^ TurtleValue::FARMER);
+	}
+
+	if (turtle.value.current_action)
+	{
+		auto action = *turtle.value.current_action;
+		ImGui::Text("current action: %s", action_names[action]);
+		if (action_cares[action] & care_about_where)
+		{
+			ImGui::Text(
+			    "where: {%i, %i, %i}",
+			    turtle.value.where.x,
+			    turtle.value.where.y,
+			    turtle.value.where.z);
+		}
+		if (action_cares[action] & care_about_direction)
+		{
+			switch (turtle.value.direction.index())
+			{
+			case 0:
+				ImGui::Text(
+				    "direction: %s",
+				    direction_to_string(std::get<0>(turtle.value.direction)));
+				break;
+			case 1:
+				ImGui::Text("direction: up");
+				break;
+			case 2:
+				ImGui::Text("direction: down");
+				break;
+			}
+		}
+		if (action_cares[action] & care_about_current_offset)
+		{
+			ImGui::Text(
+			    "current offset: {%i, %i, %i}",
+			    turtle.value.current_offset.x,
+			    turtle.value.current_offset.y,
+			    turtle.value.current_offset.z);
+		}
+		if (action_cares[action] & care_about_inventory_slot)
+		{
+			ImGui::Text("inventory slot: %i", turtle.value.inventory_slot);
+		}
+
+		if (ImGui::Button("stop action"))
+		{
+			turtle.value.current_action = std::nullopt;
+		}
+	}
+	if (ImGui::TreeNode("force action"))
+	{
+		static int action_code = -1;
+		if (ImGui::BeginCombo(
+		        "action type",
+		        action_code == -1 ? "none" : action_names[action_code]))
+		{
+			for (size_t i = 0; i < array_size(action_names); i++)
+			{
+				if (ImGui::Selectable(action_names[i]))
+				{
+					action_code = i;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		if (action_code != -1)
+		{
+			static glm::ivec3 where;
+			if (action_cares[action_code] & care_about_where)
+			{
+				ImGui::InputInt3("where", glm::value_ptr(where));
+			}
+			static std::variant<Direction, std::monostate, std::monostate>
+			    direction;
+			if (action_cares[action_code] & care_about_direction)
+			{
+				const char *name;
+				switch (direction.index())
+				{
+				case 0:
+					name = direction_to_string(std::get<0>(direction));
+					break;
+				case 1:
+					name = "up";
+					break;
+				case 2:
+					name = "down";
+					break;
+				}
+				if (ImGui::BeginCombo("direction", name))
+				{
+					if (ImGui::Selectable("north"))
+					{
+						direction = std::
+						    variant<Direction, std::monostate, std::monostate>(
+						        std::in_place_index<0>,
+						        north);
+					}
+					if (ImGui::Selectable("east"))
+					{
+						direction = std::
+						    variant<Direction, std::monostate, std::monostate>(
+						        std::in_place_index<0>,
+						        east);
+					}
+					if (ImGui::Selectable("south"))
+					{
+						direction = std::
+						    variant<Direction, std::monostate, std::monostate>(
+						        std::in_place_index<0>,
+						        south);
+					}
+					if (ImGui::Selectable("west"))
+					{
+						direction = std::
+						    variant<Direction, std::monostate, std::monostate>(
+						        std::in_place_index<0>,
+						        west);
+					}
+					if (ImGui::Selectable("up"))
+					{
+						direction = std::
+						    variant<Direction, std::monostate, std::monostate>(
+						        std::in_place_index<1>);
+					}
+					if (ImGui::Selectable("down"))
+					{
+						direction = std::
+						    variant<Direction, std::monostate, std::monostate>(
+						        std::in_place_index<2>);
+					}
+					ImGui::EndCombo();
+				}
+			}
+			//leaving out current_offset because there is a default there, and not using it will cause problems
+			static int slot;
+			if (action_cares[action_code] & care_about_inventory_slot)
+			{
+				ImGui::InputInt("inventory slot", &slot);
+			}
+			if (slot < 1)
+			{
+				slot = 1;
+			}
+			if (slot > 16)
+			{
+				slot = 16;
+			}
+			if (ImGui::Button("Force"))
+			{
+				turtle.value.current_action
+				    = static_cast<TurtleValue::actions>(action_code);
+				turtle.value.where = where;
+				turtle.value.direction = direction;
+				turtle.value.inventory_slot = slot;
+				switch (*turtle.value.current_action)
+				{
+				case TurtleValue::place_block:
+				case TurtleValue::destroy_block:
+					break;
+				case TurtleValue::picking_up_plant_drops:
+					turtle.value.current_offset = glm::ivec3{-1, 0, -1};
+					break;
+				case TurtleValue::checking_block:
+					turtle.value.current_offset = glm::ivec3{0, -1, 0};
+					break;
+				case TurtleValue::harvest_plant:
+					break;
+				}
+			}
+		}
+		ImGui::TreePop();
+	}
+}
+
 bool draw_turtle_ui(Turtle &turtle, World &world)
 {
-	static bool open = true;
+	static bool open;
+	open = true;
 	ImGui::Begin("Turtle Control", &open);
 	static std::string eval_text;
 	ImGui::Text(
@@ -434,6 +640,12 @@ bool draw_turtle_ui(Turtle &turtle, World &world)
 	else
 	{
 		ImGui::Text("turtle offline");
+	}
+	//the turtle.value doesn't affect the turtle directly, and thus can be diplayed even though the turtle is offline
+	if (ImGui::TreeNode("Value"))
+	{
+		draw_turtle_value(turtle);
+		ImGui::TreePop();
 	}
 	ImGui::End();
 
