@@ -30,7 +30,11 @@ struct connection_equal
 	}
 };
 
-size_t hash(websocketpp::connection_hdl c);
+inline size_t hash(websocketpp::connection_hdl c)
+{
+	std::hash<websocketpp::connection_hdl> a;
+	return a(c);
+}
 
 template <typename T = nlohmann::json>
 class CommandBuffer;

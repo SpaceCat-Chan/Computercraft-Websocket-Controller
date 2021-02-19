@@ -1,4 +1,4 @@
-add_executable(controller main.cpp Computer.cpp Window/Window.cpp Camera/Camera.cpp Mesh/Mesh.cpp Shader/Shader.cpp Texture/Texture.cpp SDL-Helper-Libraries/sfstream/sfstream.cpp SDL-Helper-Libraries/KeyTracker/KeyTracker.cpp Shader/Shader.cpp Camera/Camera.hpp TexturedMesh/TexturedMesh.cpp imgui/imgui.cpp imgui/imgui_demo.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp imgui/backends/imgui_impl_sdl.cpp imgui/backends/imgui_impl_opengl3.cpp imgui/misc/cpp/imgui_stdlib.cpp world.cpp GUI.cpp)
+add_executable(controller main.cpp Window/Window.cpp Camera/Camera.cpp Mesh/Mesh.cpp Shader/Shader.cpp Texture/Texture.cpp SDL-Helper-Libraries/sfstream/sfstream.cpp SDL-Helper-Libraries/KeyTracker/KeyTracker.cpp Shader/Shader.cpp Camera/Camera.hpp TexturedMesh/TexturedMesh.cpp imgui/imgui.cpp imgui/imgui_demo.cpp imgui/imgui_draw.cpp imgui/imgui_tables.cpp imgui/imgui_widgets.cpp imgui/backends/imgui_impl_sdl.cpp imgui/backends/imgui_impl_opengl3.cpp imgui/misc/cpp/imgui_stdlib.cpp world.cpp GUI.cpp)
 
 find_package(Boost COMPONENTS serialization thread REQUIRED)
 find_package(Threads REQUIRED)
